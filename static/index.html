@@ -308,6 +308,16 @@
             border: 1px solid #bee5eb;
         }
 
+        .amazon-badge {
+            display: inline-block;
+            background: #FF9900;
+            color: white;
+            padding: 3px 8px;
+            border-radius: 3px;
+            font-size: 0.75em;
+            margin-left: 10px;
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -331,7 +341,7 @@
     <div class="container">
         <header>
             <h1>🕷️ Web Scraper App</h1>
-            <p>Extract data from any website with ease</p>
+            <p>Extract data from any website with ease - Now with Amazon support!</p>
         </header>
 
         <div class="main-content">
@@ -342,7 +352,7 @@
                 
                 <div class="form-group">
                     <label for="jobName">Job Name *</label>
-                    <input type="text" id="jobName" placeholder="e.g., Tech News Scraper" required>
+                    <input type="text" id="jobName" placeholder="e.g., Amazon Mobility Scooters" required>
                 </div>
 
                 <div class="form-group">
@@ -366,7 +376,7 @@
                             <label for="extractImages">Images</label>
                         </div>
                         <div class="checkbox-item">
-                            <input type="checkbox" id="handleJavaScript">
+                            <input type="checkbox" id="handleJavaScript" checked>
                             <label for="handleJavaScript">JavaScript</label>
                         </div>
                     </div>
@@ -381,7 +391,12 @@
 
                 <div class="form-group">
                     <label for="delayBetweenRequests">Delay Between Requests (seconds)</label>
-                    <input type="number" id="delayBetweenRequests" min="0.1" max="10" step="0.1" value="1">
+                    <input type="number" id="delayBetweenRequests" min="0.1" max="10" step="0.1" value="2">
+                </div>
+
+                <div class="form-group">
+                    <label for="minRating">Min. Rating Filter (Amazon) - 0 to disable</label>
+                    <input type="number" id="minRating" min="0" max="5" step="0.1" value="0">
                 </div>
 
                 <button onclick="createJob()">Start Scraping</button>
@@ -446,6 +461,7 @@
             const handleJavaScript = document.getElementById('handleJavaScript').checked;
             const followLinks = document.getElementById('followLinks').checked;
             const delayBetweenRequests = parseFloat(document.getElementById('delayBetweenRequests').value);
+            const minRating = parseFloat(document.getElementById('minRating').value);
 
             if (!jobName || !url) {
                 showAlert('Please fill in all required fields', 'error');
@@ -464,7 +480,8 @@
                         extract_images: extractImages,
                         handle_javascript: handleJavaScript,
                         follow_links: followLinks,
-                        delay_between_requests: delayBetweenRequests
+                        delay_between_requests: delayBetweenRequests,
+                        min_rating: minRating
                     })
                 });
 
@@ -501,17 +518,19 @@
                     jobElement.className = 'job-item';
                     
                     const statusClass = `status-${job.status}`;
-                    const completedAt = job.completed_at ? new Date(job.completed_at).toLocaleString() : '-';
+                    const isAmazon = job.url.includes('amazon.com');
+                    const amazonBadge = isAmazon ? '<span class="amazon-badge">🛒 Amazon</span>' : '';
                     
                     jobElement.innerHTML = `
                         <div class="job-header">
-                            <div class="job-name">${job.job_name}</div>
+                            <div class="job-name">${job.job_name}${amazonBadge}</div>
                             <div class="job-status ${statusClass}">${job.status.toUpperCase()}</div>
                         </div>
                         <div class="job-details">
                             <span><strong>URL:</strong> ${truncateUrl(job.url)}</span>
                             <span><strong>Items:</strong> ${job.data_count}</span>
                             <span><strong>Created:</strong> ${new Date(job.created_at).toLocaleString()}</span>
+                            ${job.min_rating > 0 ? `<span><strong>Min Rating:</strong> ${job.min_rating}⭐</span>` : ''}
                         </div>
                         <div class="job-actions">
                             <button class="btn-small btn-info" onclick="viewJobData(${job.id})">View Data</button>
@@ -568,7 +587,16 @@
                     content += 'No data scraped yet.';
                 } else {
                     data.slice(0, 10).forEach((item, index) => {
-                        content += `${index + 1}. [${item.data_type.toUpperCase()}] ${item.content.substring(0, 100)}\n`;
+                        let itemContent = item.content.substring(0, 100);
+                        if (item.metadata) {
+                            try {
+                                const meta = JSON.parse(item.metadata);
+                                itemContent = `Price: ${meta.price || 'N/A'} | Rating: ${meta.rating || 'N/A'} | Stock: ${meta.stock_status || 'N/A'}`;
+                            } catch (e) {
+                                // Keep original content
+                            }
+                        }
+                        content += `${index + 1}. [${item.data_type.toUpperCase()}] ${itemContent}\n`;
                     });
                     if (data.length > 10) {
                         content += `\n... and ${data.length - 10} more items`;

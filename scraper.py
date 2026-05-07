@@ -11,6 +11,8 @@ import logging
 from urllib.parse import urljoin, urlparse
 from datetime import datetime
 import random
+import re
+import json
 
 logger = logging.getLogger(__name__)
 
@@ -183,8 +185,107 @@ class WebScraper:
         
         return data
     
+    def extract_price(self, text):
+        """Extract price from text"""
+        # Match various price formats: $1,234.56, £50.00, €100
+        price_pattern = r'[$£€]\s*([0-9,]+\.?[0-9]*)|([0-9,]+\.?[0-9]*)\s*[$£€]'
+        match = re.search(price_pattern, text)
+        return match.group(0).strip() if match else None
+    
+    def extract_rating(self, text):
+        """Extract rating from text"""
+        # Match patterns like "4.5 out of 5" or "4.5 stars"
+        rating_pattern = r'(\d+\.?\d*)\s*(?:out of 5|stars?)'
+        match = re.search(rating_pattern, text, re.IGNORECASE)
+        if match:
+            try:
+                return float(match.group(1))
+            except:
+                return None
+        return None
+    
+    def extract_stock_status(self, text):
+        """Extract stock status from text"""
+        text_lower = text.lower()
+        if 'in stock' in text_lower or 'in stock' in text_lower:
+            return 'In Stock'
+        elif 'out of stock' in text_lower or 'unavailable' in text_lower:
+            return 'Out of Stock'
+        elif 'limited' in text_lower or 'only' in text_lower and 'left' in text_lower:
+            return 'Limited Availability'
+        return 'Unknown'
+    
+    def extract_amazon_products(self, soup, base_url, min_rating=0):
+        """Extract Amazon product information"""
+        data = []
+        try:
+            # Amazon product containers
+            product_containers = soup.find_all('div', {'data-component-type': 's-search-result'})
+            
+            if not product_containers:
+                # Fallback to alternative selectors
+                product_containers = soup.find_all('div', class_=re.compile(r'.*s-result-item.*'))
+            
+            for product in product_containers:
+                try:
+                    # Extract title
+                    title_elem = product.find('h2', class_='s-size-mini')
+                    if not title_elem:
+                        title_elem = product.find('span', class_='a-size-base-plus')
+                    title = title_elem.get_text(strip=True) if title_elem else 'N/A'
+                    
+                    # Extract price
+                    price_elem = product.find('span', class_=re.compile(r'a-price-whole'))
+                    price = price_elem.get_text(strip=True) if price_elem else 'N/A'
+                    
+                    # Extract rating
+                    rating_elem = product.find('span', class_=re.compile(r'a-icon-star-small'))
+                    rating_text = rating_elem.get_text(strip=True) if rating_elem else 'N/A'
+                    rating = self.extract_rating(rating_text)
+                    
+                    # Skip if rating doesn't meet minimum
+                    if min_rating > 0 and rating and rating < min_rating:
+                        continue
+                    
+                    # Extract seller
+                    seller_elem = product.find('span', class_='a-size-base')
+                    seller = 'Amazon' if not seller_elem else seller_elem.get_text(strip=True)
+                    
+                    # Extract product URL
+                    link_elem = product.find('a', class_='a-link-normal')
+                    product_url = urljoin(base_url, link_elem['href']) if link_elem and 'href' in link_elem.attrs else 'N/A'
+                    
+                    # Extract stock status
+                    availability_text = product.get_text()
+                    stock_status = self.extract_stock_status(availability_text)
+                    
+                    # Create metadata
+                    metadata = {
+                        'title': title,
+                        'price': price,
+                        'rating': rating,
+                        'seller': seller,
+                        'stock_status': stock_status,
+                        'product_url': product_url
+                    }
+                    
+                    data.append({
+                        'type': 'amazon_product',
+                        'content': f"{title} - {price}",
+                        'url': product_url,
+                        'metadata': json.dumps(metadata)
+                    })
+                    
+                except Exception as e:
+                    logger.error(f"Error extracting individual Amazon product: {str(e)}")
+                    continue
+        except Exception as e:
+            logger.error(f"Error extracting Amazon products: {str(e)}")
+        
+        return data
+    
     def scrape(self, url, extract_text=True, extract_links=False, 
-               extract_images=False, handle_javascript=False):
+               extract_images=False, handle_javascript=False, min_rating=0):
         """Main scrape method"""
         try:
             time.sleep(self.delay_between_requests)
@@ -195,6 +296,11 @@ class WebScraper:
                 soup = self.scrape_static_content(url)
             
             results = []
+            
+            # Check if it's Amazon and extract products
+            if 'amazon.com' in url.lower():
+                amazon_products = self.extract_amazon_products(soup, url, min_rating)
+                results.extend(amazon_products)
             
             if extract_text:
                 results.extend(self.extract_text(soup, url))
@@ -213,7 +319,7 @@ class WebScraper:
             raise
     
     def crawl(self, start_url, extract_text=True, extract_links=False,
-              extract_images=False, handle_javascript=False, max_pages=10):
+              extract_images=False, handle_javascript=False, max_pages=10, min_rating=0):
         """Crawl multiple pages starting from start_url"""
         all_results = []
         urls_to_visit = [start_url]
@@ -234,7 +340,7 @@ class WebScraper:
                 logger.info(f"Crawling {url} ({len(self.visited_urls)}/{max_pages})")
                 
                 results = self.scrape(url, extract_text, extract_links, 
-                                     extract_images, handle_javascript)
+                                     extract_images, handle_javascript, min_rating)
                 all_results.extend(results)
                 
                 # Get links for crawling

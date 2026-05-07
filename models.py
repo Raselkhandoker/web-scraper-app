@@ -17,6 +17,7 @@ class ScrapingJob(db.Model):
     handle_javascript = db.Column(db.Boolean, default=False)
     follow_links = db.Column(db.Boolean, default=False)
     delay_between_requests = db.Column(db.Float, default=1.0)
+    min_rating = db.Column(db.Float, default=0)  # Amazon: min rating filter
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     started_at = db.Column(db.DateTime)
     completed_at = db.Column(db.DateTime)
@@ -41,6 +42,7 @@ class ScrapingJob(db.Model):
             'handle_javascript': self.handle_javascript,
             'follow_links': self.follow_links,
             'delay_between_requests': self.delay_between_requests,
+            'min_rating': self.min_rating,
             'data_count': self.data_count,
             'created_at': self.created_at.isoformat(),
             'started_at': self.started_at.isoformat() if self.started_at else None,
@@ -55,9 +57,10 @@ class ScrapedData(db.Model):
     
     id = db.Column(db.Integer, primary_key=True)
     job_id = db.Column(db.Integer, db.ForeignKey('scraping_jobs.id'), nullable=False)
-    data_type = db.Column(db.String(50), nullable=False)  # text, link, image, table
+    data_type = db.Column(db.String(50), nullable=False)  # text, link, image, table, amazon_product
     content = db.Column(db.Text, nullable=False)
     url = db.Column(db.String(1024))
+    metadata = db.Column(db.Text)  # JSON string for Amazon product details
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def to_dict(self):
@@ -67,5 +70,6 @@ class ScrapedData(db.Model):
             'data_type': self.data_type,
             'content': self.content,
             'url': self.url,
+            'metadata': self.metadata,
             'created_at': self.created_at.isoformat()
         }

@@ -32,7 +32,8 @@ def run_scraping_job(job_id):
                     extract_links=job.extract_links,
                     extract_images=job.extract_images,
                     handle_javascript=job.handle_javascript,
-                    max_pages=20
+                    max_pages=20,
+                    min_rating=job.min_rating
                 )
             else:
                 results = scraper.scrape(
@@ -40,7 +41,8 @@ def run_scraping_job(job_id):
                     extract_text=job.extract_text,
                     extract_links=job.extract_links,
                     extract_images=job.extract_images,
-                    handle_javascript=job.handle_javascript
+                    handle_javascript=job.handle_javascript,
+                    min_rating=job.min_rating
                 )
             
             # Save scraped data
@@ -49,7 +51,8 @@ def run_scraping_job(job_id):
                     job_id=job_id,
                     data_type=result['type'],
                     content=result['content'][:5000],  # Limit content length
-                    url=result.get('url')
+                    url=result.get('url'),
+                    metadata=result.get('metadata')
                 )
                 db.session.add(scraped_data)
             
@@ -89,7 +92,8 @@ def create_job():
             extract_images=data.get('extract_images', False),
             handle_javascript=data.get('handle_javascript', False),
             follow_links=data.get('follow_links', False),
-            delay_between_requests=float(data.get('delay_between_requests', 1.0))
+            delay_between_requests=float(data.get('delay_between_requests', 1.0)),
+            min_rating=float(data.get('min_rating', 0))
         )
         
         db.session.add(job)
@@ -174,10 +178,10 @@ def export_csv(job_id):
         
         output = io.StringIO()
         writer = csv.writer(output)
-        writer.writerow(['Type', 'Content', 'URL', 'Created At'])
+        writer.writerow(['Type', 'Content', 'URL', 'Metadata', 'Created At'])
         
         for item in data:
-            writer.writerow([item.data_type, item.content, item.url, item.created_at])
+            writer.writerow([item.data_type, item.content, item.url, item.metadata or '', item.created_at])
         
         output.seek(0)
         return send_file(
