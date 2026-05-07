@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Scraper App</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        header {
+            text-align: center;
+            color: white;
+            margin-bottom: 30px;
+        }
+
+        header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+
+        header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 2fr;
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+            padding: 25px;
+        }
+
+        .card h2 {
+            margin-bottom: 20px;
+            color: #333;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+        }
+
+        .form-group {
+            margin-bottom: 15px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 500;
+        }
+
+        input[type="text"],
+        input[type="url"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 1em;
+            transition: border-color 0.3s;
+        }
+
+        input[type="text"]:focus,
+        input[type="url"]:focus,
+        input[type="number"]:focus,
+        select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+
+        .checkbox-group {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+        }
+
+        input[type="checkbox"] {
+            margin-right: 8px;
+            cursor: pointer;
+        }
+
+        .checkbox-item label {
+            margin: 0;
+            cursor: pointer;
+        }
+
+        button {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 25px;
+            border: none;
+            border-radius: 5px;
+            font-size: 1em;
+            cursor: pointer;
+            transition: transform 0.2s, box-shadow 0.2s;
+            width: 100%;
+            font-weight: 600;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+
+        button:active {
+            transform: translateY(0);
+        }
+
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+
+        .stat-item {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+
+        .stat-number {
+            font-size: 2em;
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.9;
+        }
+
+        .jobs-section {
+            grid-column: 1 / -1;
+        }
+
+        .job-item {
+            background: #f8f9fa;
+            border-left: 4px solid #667eea;
+            padding: 15px;
+            margin-bottom: 10px;
+            border-radius: 5px;
+            transition: transform 0.2s;
+        }
+
+        .job-item:hover {
+            transform: translateX(5px);
+        }
+
+        .job-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+
+        .job-name {
+            font-weight: 600;
+            color: #333;
+        }
+
+        .job-status {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+
+        .status-pending {
+            background: #ffeaa7;
+            color: #d63031;
+        }
+
+        .status-running {
+            background: #a29bfe;
+            color: #2d3436;
+        }
+
+        .status-completed {
+            background: #55efc4;
+            color: #2d3436;
+        }
+
+        .status-failed {
+            background: #fab1a0;
+            color: #d63031;
+        }
+
+        .status-cancelled {
+            background: #dfe6e9;
+            color: #2d3436;
+        }
+
+        .job-details {
+            font-size: 0.9em;
+            color: #666;
+            margin-bottom: 10px;
+        }
+
+        .job-details span {
+            margin-right: 15px;
+        }
+
+        .job-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+
+        .btn-small {
+            padding: 8px 15px;
+            font-size: 0.85em;
+            flex: 1;
+            min-width: 100px;
+        }
+
+        .btn-danger {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+
+        .btn-success {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+
+        .btn-info {
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        }
+
+        .jobs-list {
+            max-height: 600px;
+            overflow-y: auto;
+        }
+
+        .empty-state {
+            text-align: center;
+            color: #999;
+            padding: 30px;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .alert {
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 5px;
+        }
+
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+
+        @media (max-width: 768px) {
+            .main-content {
+                grid-template-columns: 1fr;
+            }
+
+            header h1 {
+                font-size: 1.8em;
+            }
+
+            .stats {
+                grid-template-columns: 1fr;
+            }
+
+            .checkbox-group {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🕷️ Web Scraper App</h1>
+            <p>Extract data from any website with ease</p>
+        </header>
+
+        <div class="main-content">
+            <!-- Create Job Form -->
+            <div class="card">
+                <h2>Create Scraping Job</h2>
+                <div id="alert-container"></div>
+                
+                <div class="form-group">
+                    <label for="jobName">Job Name *</label>
+                    <input type="text" id="jobName" placeholder="e.g., Tech News Scraper" required>
+                </div>
+
+                <div class="form-group">
+                    <label for="url">Website URL *</label>
+                    <input type="url" id="url" placeholder="https://example.com" required>
+                </div>
+
+                <div class="form-group">
+                    <label>Extract Options</label>
+                    <div class="checkbox-group">
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="extractText" checked>
+                            <label for="extractText">Text</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="extractLinks">
+                            <label for="extractLinks">Links</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="extractImages">
+                            <label for="extractImages">Images</label>
+                        </div>
+                        <div class="checkbox-item">
+                            <input type="checkbox" id="handleJavaScript">
+                            <label for="handleJavaScript">JavaScript</label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <div class="checkbox-item">
+                        <input type="checkbox" id="followLinks">
+                        <label for="followLinks">Follow Links (Crawl multiple pages)</label>
+                    </div>
+                </div>
+
+                <div class="form-group">
+                    <label for="delayBetweenRequests">Delay Between Requests (seconds)</label>
+                    <input type="number" id="delayBetweenRequests" min="0.1" max="10" step="0.1" value="1">
+                </div>
+
+                <button onclick="createJob()">Start Scraping</button>
+            </div>
+
+            <!-- Jobs List and Stats -->
+            <div>
+                <!-- Stats -->
+                <div class="card">
+                    <h2>Statistics</h2>
+                    <div class="stats" id="stats">
+                        <div class="stat-item">
+                            <div class="stat-number">-</div>
+                            <div class="stat-label">Total Jobs</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">-</div>
+                            <div class="stat-label">Completed</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">-</div>
+                            <div class="stat-label">Failed</div>
+                        </div>
+                        <div class="stat-item">
+                            <div class="stat-number">-</div>
+                            <div class="stat-label">Data Items</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Jobs List -->
+                <div class="card jobs-section">
+                    <h2>Recent Jobs</h2>
+                    <div class="jobs-list" id="jobsList">
+                        <div class="empty-state">No jobs yet. Create one to get started!</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api';
+
+        // Alert helper
+        function showAlert(message, type = 'info') {
+            const alertContainer = document.getElementById('alert-container');
+            const alert = document.createElement('div');
+            alert.className = `alert alert-${type}`;
+            alert.textContent = message;
+            alertContainer.appendChild(alert);
+            setTimeout(() => alert.remove(), 5000);
+        }
+
+        // Create a new scraping job
+        async function createJob() {
+            const jobName = document.getElementById('jobName').value;
+            const url = document.getElementById('url').value;
+            const extractText = document.getElementById('extractText').checked;
+            const extractLinks = document.getElementById('extractLinks').checked;
+            const extractImages = document.getElementById('extractImages').checked;
+            const handleJavaScript = document.getElementById('handleJavaScript').checked;
+            const followLinks = document.getElementById('followLinks').checked;
+            const delayBetweenRequests = parseFloat(document.getElementById('delayBetweenRequests').value);
+
+            if (!jobName || !url) {
+                showAlert('Please fill in all required fields', 'error');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE}/jobs`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        job_name: jobName,
+                        url: url,
+                        extract_text: extractText,
+                        extract_links: extractLinks,
+                        extract_images: extractImages,
+                        handle_javascript: handleJavaScript,
+                        follow_links: followLinks,
+                        delay_between_requests: delayBetweenRequests
+                    })
+                });
+
+                if (response.ok) {
+                    showAlert('Scraping job created successfully!', 'success');
+                    document.getElementById('jobName').value = '';
+                    document.getElementById('url').value = '';
+                    loadJobs();
+                    loadStats();
+                } else {
+                    showAlert('Failed to create job', 'error');
+                }
+            } catch (error) {
+                showAlert(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Load and display jobs
+        async function loadJobs() {
+            try {
+                const response = await fetch(`${API_BASE}/jobs`);
+                const jobs = await response.json();
+
+                const jobsList = document.getElementById('jobsList');
+                jobsList.innerHTML = '';
+
+                if (jobs.length === 0) {
+                    jobsList.innerHTML = '<div class="empty-state">No jobs yet. Create one to get started!</div>';
+                    return;
+                }
+
+                jobs.forEach(job => {
+                    const jobElement = document.createElement('div');
+                    jobElement.className = 'job-item';
+                    
+                    const statusClass = `status-${job.status}`;
+                    const completedAt = job.completed_at ? new Date(job.completed_at).toLocaleString() : '-';
+                    
+                    jobElement.innerHTML = `
+                        <div class="job-header">
+                            <div class="job-name">${job.job_name}</div>
+                            <div class="job-status ${statusClass}">${job.status.toUpperCase()}</div>
+                        </div>
+                        <div class="job-details">
+                            <span><strong>URL:</strong> ${truncateUrl(job.url)}</span>
+                            <span><strong>Items:</strong> ${job.data_count}</span>
+                            <span><strong>Created:</strong> ${new Date(job.created_at).toLocaleString()}</span>
+                        </div>
+                        <div class="job-actions">
+                            <button class="btn-small btn-info" onclick="viewJobData(${job.id})">View Data</button>
+                            <button class="btn-small btn-success" onclick="exportJob(${job.id}, 'csv')">Export CSV</button>
+                            <button class="btn-small btn-success" onclick="exportJob(${job.id}, 'json')">Export JSON</button>
+                            <button class="btn-small btn-danger" onclick="deleteJob(${job.id})">Delete</button>
+                        </div>
+                    `;
+                    jobsList.appendChild(jobElement);
+                });
+            } catch (error) {
+                console.error('Error loading jobs:', error);
+            }
+        }
+
+        // Load statistics
+        async function loadStats() {
+            try {
+                const response = await fetch(`${API_BASE}/stats`);
+                const stats = await response.json();
+
+                const statsContainer = document.getElementById('stats');
+                statsContainer.innerHTML = `
+                    <div class="stat-item">
+                        <div class="stat-number">${stats.total_jobs}</div>
+                        <div class="stat-label">Total Jobs</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">${stats.completed_jobs}</div>
+                        <div class="stat-label">Completed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">${stats.failed_jobs}</div>
+                        <div class="stat-label">Failed</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-number">${stats.total_data_items}</div>
+                        <div class="stat-label">Data Items</div>
+                    </div>
+                `;
+            } catch (error) {
+                console.error('Error loading stats:', error);
+            }
+        }
+
+        // View job data
+        async function viewJobData(jobId) {
+            try {
+                const response = await fetch(`${API_BASE}/jobs/${jobId}/data`);
+                const data = await response.json();
+
+                let content = '<strong>Scraped Data:</strong>\n\n';
+                if (data.length === 0) {
+                    content += 'No data scraped yet.';
+                } else {
+                    data.slice(0, 10).forEach((item, index) => {
+                        content += `${index + 1}. [${item.data_type.toUpperCase()}] ${item.content.substring(0, 100)}\n`;
+                    });
+                    if (data.length > 10) {
+                        content += `\n... and ${data.length - 10} more items`;
+                    }
+                }
+                alert(content);
+            } catch (error) {
+                showAlert(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Export job data
+        async function exportJob(jobId, format) {
+            try {
+                const response = await fetch(`${API_BASE}/jobs/${jobId}/export/${format}`);
+                const blob = await response.blob();
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `scraped_data_${jobId}.${format}`;
+                a.click();
+                window.URL.revokeObjectURL(url);
+            } catch (error) {
+                showAlert(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Delete job
+        async function deleteJob(jobId) {
+            if (!confirm('Are you sure you want to delete this job and all its data?')) return;
+
+            try {
+                const response = await fetch(`${API_BASE}/jobs/${jobId}`, {
+                    method: 'DELETE'
+                });
+
+                if (response.ok) {
+                    showAlert('Job deleted successfully', 'success');
+                    loadJobs();
+                    loadStats();
+                } else {
+                    showAlert('Failed to delete job', 'error');
+                }
+            } catch (error) {
+                showAlert(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        // Helper function to truncate URLs
+        function truncateUrl(url) {
+            return url.length > 40 ? url.substring(0, 40) + '...' : url;
+        }
+
+        // Auto-refresh jobs and stats
+        setInterval(() => {
+            loadJobs();
+            loadStats();
+        }, 5000);
+
+        // Initial load
+        loadJobs();
+        loadStats();
+    </script>
+</body>
+</html>
