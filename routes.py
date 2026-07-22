@@ -52,7 +52,7 @@ def run_scraping_job(job_id):
                     data_type=result['type'],
                     content=result['content'][:5000],  # Limit content length
                     url=result.get('url'),
-                    metadata=result.get('metadata')
+                    item_metadata=result.get('metadata')
                 )
                 db.session.add(scraped_data)
             
@@ -181,7 +181,7 @@ def export_csv(job_id):
         writer.writerow(['Type', 'Content', 'URL', 'Metadata', 'Created At'])
         
         for item in data:
-            writer.writerow([item.data_type, item.content, item.url, item.metadata or '', item.created_at])
+            writer.writerow([item.data_type, item.content, item.url, item.item_metadata or '', item.created_at])
         
         output.seek(0)
         return send_file(

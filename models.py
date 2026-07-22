@@ -60,7 +60,7 @@ class ScrapedData(db.Model):
     data_type = db.Column(db.String(50), nullable=False)  # text, link, image, table, amazon_product
     content = db.Column(db.Text, nullable=False)
     url = db.Column(db.String(1024))
-    metadata = db.Column(db.Text)  # JSON string for Amazon product details
+    item_metadata = db.Column('metadata', db.Text)  # JSON string for Amazon product details
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
     
     def to_dict(self):
@@ -70,6 +70,6 @@ class ScrapedData(db.Model):
             'data_type': self.data_type,
             'content': self.content,
             'url': self.url,
-            'metadata': self.metadata,
+            'metadata': self.item_metadata,
             'created_at': self.created_at.isoformat()
         }
