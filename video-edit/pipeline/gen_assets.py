@@ -284,29 +284,20 @@ def make_endcard():
     img = Image.new("RGBA", (W, H), (0,0,0,0))
     d = ImageDraw.Draw(img)
     # dim scrim
-    d.rectangle([0,0,W,H], fill=(8,10,14,180))
+    d.rectangle([0,0,W,H], fill=(8,10,14,185))
     cx = W//2
-    # big logo
-    fnt = font(120); chip = font(120)
-    t1 = "PITCH"
-    w1 = d.textlength(t1, font=fnt)
-    total = w1 + 40 + 240
-    x = cx - total//2
-    y = 780
-    d.text((x, y), t1, font=fnt, fill=WHITE)
-    chx = x + w1 + 40
-    d.rounded_rectangle([chx, y+6, chx+240, y+140], radius=24, fill=CYAN)
-    d.text((chx+40, y), "IQ", font=chip, fill=INK)
-    # accent line
-    d.rounded_rectangle([cx-260, y+190, cx+260, y+212], radius=10, fill=MAGENTA)
-    # CTA
-    tracking_text(d, (cx, y+250), "FOLLOW FOR MORE BREAKDOWNS", font(48), WHITE, track=4, anchor_center=True)
-    # handle pill
-    hy = y + 360
-    txt = "@PITCHIQ"
-    w = tracking_text(d, (0,0), txt, font(52), (0,0,0,0), track=6)
-    d.rounded_rectangle([cx-w//2-40, hy, cx+w//2+40, hy+96], radius=48, fill=CYAN)
-    tracking_text(d, (cx, hy+20), txt, font(52), INK, track=6, anchor_center=True)
+    y = 740
+    # small centred cyan accent bar
+    d.rounded_rectangle([cx-70, y-40, cx+70, y-16], radius=8, fill=CYAN)
+    # squad/number kicker
+    tracking_text(d, (cx, y+6), "#11 · FC BARCELONA", font(44), CYAN, track=8, anchor_center=True)
+    # PLAYER NAME (hero)
+    big = font(146)
+    tracking_text(d, (cx, y+90), "RAPHINHA", big, WHITE, track=3, anchor_center=True)
+    # magenta underline sweep
+    d.rounded_rectangle([cx-330, y+300, cx+330, y+324], radius=12, fill=MAGENTA)
+    # role subtitle
+    tracking_text(d, (cx, y+352), "THE SET-PIECE KING", font(52), WHITE, track=5, anchor_center=True)
     save(img, "endcard.png")
 
 if __name__ == "__main__":
