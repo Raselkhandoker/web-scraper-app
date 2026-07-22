@@ -5,6 +5,7 @@ import logging
 from dotenv import load_dotenv
 from models import db
 from routes import api_bp
+from youtube_routes import youtube_bp
 
 # Load environment variables
 load_dotenv()
@@ -34,6 +35,7 @@ def create_app():
     
     # Register blueprints
     app.register_blueprint(api_bp)
+    app.register_blueprint(youtube_bp)
     
     # Create tables
     with app.app_context():

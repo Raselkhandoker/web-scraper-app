@@ -138,6 +138,39 @@ GET /api/stats
 DELETE /api/jobs/<job_id>
 ```
 
+## 🎯 YouTube Tools (vidIQ-style)
+
+A second tab in the dashboard, "YouTube Tools", adds lightweight YouTube SEO research
+built on the official **YouTube Data API v3** (not scraping, since YouTube's pages are
+JS-heavy and scraping them would violate YouTube's Terms of Service):
+
+- **Keyword Research** — analyzes the top-ranking videos for a search term and returns
+  suggested tags (aggregated from those videos) plus a rough 0-100 competition estimate
+  based on result volume and average views. There's no public search-volume API, so this
+  is directional, not exact.
+- **Channel Analysis** — subscriber/view/video counts plus performance of recent uploads
+  (avg views, engagement rate, views-per-subscriber).
+- **Video SEO Score** — scores a single video (0-100) on title length, description
+  length, tag count, and engagement rate, with concrete suggestions.
+
+### Setup
+1. Create a project in [Google Cloud Console](https://console.cloud.google.com/), enable
+   the **YouTube Data API v3**, and create an API key.
+2. Add it to `.env`:
+   ```env
+   YOUTUBE_API_KEY=your-api-key-here
+   ```
+
+### API Endpoints
+```bash
+POST /api/youtube/keyword-research   { "keyword": "sourdough bread recipe" }
+POST /api/youtube/channel-analysis   { "channel": "@mkbhd" }
+POST /api/youtube/video-score        { "video": "https://youtube.com/watch?v=..." }
+```
+
+Note: the YouTube Data API has a free daily quota (10,000 units/day by default), so
+heavy use of keyword research (each call costs ~100 units) can hit the limit.
+
 ## 🔧 Configuration
 
 Edit `.env` file to customize:

@@ -318,6 +318,85 @@
             margin-left: 10px;
         }
 
+        .tabs {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+
+        .tab-btn {
+            width: auto;
+            background: rgba(255, 255, 255, 0.25);
+            padding: 10px 25px;
+        }
+
+        .tab-btn.active {
+            background: white;
+            color: #667eea;
+            font-weight: 700;
+        }
+
+        .tab-panel {
+            display: none;
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        .yt-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 20px;
+        }
+
+        .result-box {
+            margin-top: 15px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            max-height: 350px;
+            overflow-y: auto;
+            font-size: 0.9em;
+        }
+
+        .result-box h4 {
+            color: #333;
+            margin: 10px 0 5px;
+        }
+
+        .tag-pill {
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 3px 10px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            margin: 3px;
+        }
+
+        .score-badge {
+            display: inline-block;
+            font-size: 1.6em;
+            font-weight: bold;
+            padding: 10px 20px;
+            border-radius: 8px;
+            color: white;
+            background: linear-gradient(135deg, #43e97b 0%, #38f9d7 100%);
+        }
+
+        .video-row {
+            border-bottom: 1px solid #eee;
+            padding: 8px 0;
+        }
+
+        @media (max-width: 900px) {
+            .yt-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
         @media (max-width: 768px) {
             .main-content {
                 grid-template-columns: 1fr;
@@ -344,6 +423,12 @@
             <p>Extract data from any website with ease - Now with Amazon support!</p>
         </header>
 
+        <div class="tabs">
+            <button class="tab-btn active" id="tabBtnScraper" onclick="switchTab('scraper')">Web Scraper</button>
+            <button class="tab-btn" id="tabBtnYoutube" onclick="switchTab('youtube')">YouTube Tools</button>
+        </div>
+
+        <div class="tab-panel active" id="scraperTab">
         <div class="main-content">
             <!-- Create Job Form -->
             <div class="card">
@@ -432,6 +517,50 @@
                     <h2>Recent Jobs</h2>
                     <div class="jobs-list" id="jobsList">
                         <div class="empty-state">No jobs yet. Create one to get started!</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        </div>
+
+        <div class="tab-panel" id="youtubeTab">
+            <div class="yt-grid">
+                <!-- Keyword Research -->
+                <div class="card">
+                    <h2>🔑 Keyword Research</h2>
+                    <div class="form-group">
+                        <label for="ytKeyword">Keyword or Topic</label>
+                        <input type="text" id="ytKeyword" placeholder="e.g., sourdough bread recipe">
+                    </div>
+                    <button onclick="runKeywordResearch()">Analyze Keyword</button>
+                    <div class="result-box" id="ytKeywordResult">
+                        <div class="empty-state">Results will appear here.</div>
+                    </div>
+                </div>
+
+                <!-- Channel Analysis -->
+                <div class="card">
+                    <h2>📺 Channel Analysis</h2>
+                    <div class="form-group">
+                        <label for="ytChannel">Channel URL, @handle, or ID</label>
+                        <input type="text" id="ytChannel" placeholder="e.g., @mkbhd">
+                    </div>
+                    <button onclick="runChannelAnalysis()">Analyze Channel</button>
+                    <div class="result-box" id="ytChannelResult">
+                        <div class="empty-state">Results will appear here.</div>
+                    </div>
+                </div>
+
+                <!-- Video SEO Score -->
+                <div class="card">
+                    <h2>🎯 Video SEO Score</h2>
+                    <div class="form-group">
+                        <label for="ytVideo">Video URL or ID</label>
+                        <input type="text" id="ytVideo" placeholder="e.g., https://youtube.com/watch?v=...">
+                    </div>
+                    <button onclick="runVideoScore()">Score Video</button>
+                    <div class="result-box" id="ytVideoResult">
+                        <div class="empty-state">Results will appear here.</div>
                     </div>
                 </div>
             </div>
@@ -648,6 +777,126 @@
         // Helper function to truncate URLs
         function truncateUrl(url) {
             return url.length > 40 ? url.substring(0, 40) + '...' : url;
+        }
+
+        // Tab switching
+        function switchTab(tab) {
+            document.getElementById('scraperTab').classList.toggle('active', tab === 'scraper');
+            document.getElementById('youtubeTab').classList.toggle('active', tab === 'youtube');
+            document.getElementById('tabBtnScraper').classList.toggle('active', tab === 'scraper');
+            document.getElementById('tabBtnYoutube').classList.toggle('active', tab === 'youtube');
+        }
+
+        function escapeHtml(str) {
+            const div = document.createElement('div');
+            div.textContent = str == null ? '' : String(str);
+            return div.innerHTML;
+        }
+
+        function formatNumber(num) {
+            return num == null ? 'N/A' : num.toLocaleString();
+        }
+
+        async function callYoutubeApi(endpoint, body, resultBoxId) {
+            const resultBox = document.getElementById(resultBoxId);
+            resultBox.innerHTML = '<div class="loading"></div> Analyzing...';
+            try {
+                const response = await fetch(`${API_BASE}/youtube/${endpoint}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(body)
+                });
+                const data = await response.json();
+                if (!response.ok) {
+                    resultBox.innerHTML = `<div class="alert alert-error">${escapeHtml(data.error || 'Request failed')}</div>`;
+                    return null;
+                }
+                return data;
+            } catch (error) {
+                resultBox.innerHTML = `<div class="alert alert-error">Error: ${escapeHtml(error.message)}</div>`;
+                return null;
+            }
+        }
+
+        async function runKeywordResearch() {
+            const keyword = document.getElementById('ytKeyword').value.trim();
+            const resultBoxId = 'ytKeywordResult';
+            if (!keyword) {
+                showAlert('Please enter a keyword', 'error');
+                return;
+            }
+            const data = await callYoutubeApi('keyword-research', { keyword }, resultBoxId);
+            if (!data) return;
+
+            const tagsHtml = data.suggested_tags.map(t => `<span class="tag-pill">${escapeHtml(t)}</span>`).join('') || '<em>No tags found</em>';
+            const topVideosHtml = data.top_videos.slice(0, 5).map(v => `
+                <div class="video-row">
+                    <strong>${escapeHtml(v.title)}</strong><br>
+                    <span>${escapeHtml(v.channel)} · ${formatNumber(v.views)} views</span>
+                </div>
+            `).join('');
+
+            document.getElementById(resultBoxId).innerHTML = `
+                <div><strong>Estimated competition:</strong> ${data.estimated_competition}/100</div>
+                <div><strong>Avg views (top results):</strong> ${formatNumber(data.avg_views)}</div>
+                <h4>Suggested Tags</h4>
+                <div>${tagsHtml}</div>
+                <h4>Top Ranking Videos</h4>
+                ${topVideosHtml}
+            `;
+        }
+
+        async function runChannelAnalysis() {
+            const channel = document.getElementById('ytChannel').value.trim();
+            const resultBoxId = 'ytChannelResult';
+            if (!channel) {
+                showAlert('Please enter a channel URL, handle, or ID', 'error');
+                return;
+            }
+            const data = await callYoutubeApi('channel-analysis', { channel }, resultBoxId);
+            if (!data) return;
+
+            const recentHtml = data.recent_videos.slice(0, 5).map(v => `
+                <div class="video-row">
+                    <strong>${escapeHtml(v.title)}</strong><br>
+                    <span>${formatNumber(v.views)} views · ${formatNumber(v.likes)} likes</span>
+                </div>
+            `).join('');
+
+            document.getElementById(resultBoxId).innerHTML = `
+                <div><strong>${escapeHtml(data.title)}</strong></div>
+                <div>Subscribers: ${formatNumber(data.subscriber_count)}</div>
+                <div>Total views: ${formatNumber(data.total_view_count)}</div>
+                <div>Videos: ${formatNumber(data.video_count)}</div>
+                <div>Avg recent views: ${formatNumber(data.avg_recent_views)}</div>
+                <div>Avg engagement rate: ${data.avg_engagement_rate_pct}%</div>
+                <h4>Recent Uploads</h4>
+                ${recentHtml}
+            `;
+        }
+
+        async function runVideoScore() {
+            const video = document.getElementById('ytVideo').value.trim();
+            const resultBoxId = 'ytVideoResult';
+            if (!video) {
+                showAlert('Please enter a video URL or ID', 'error');
+                return;
+            }
+            const data = await callYoutubeApi('video-score', { video }, resultBoxId);
+            if (!data) return;
+
+            const suggestionsHtml = data.suggestions.length
+                ? `<ul>${data.suggestions.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ul>`
+                : '<em>No major issues found.</em>';
+
+            document.getElementById(resultBoxId).innerHTML = `
+                <div><strong>${escapeHtml(data.title)}</strong></div>
+                <div style="margin: 10px 0;"><span class="score-badge">${data.seo_score}/100</span></div>
+                <div>Views: ${formatNumber(data.views)} · Engagement: ${data.engagement_rate_pct}%</div>
+                <div>Tags: ${data.tag_count} · Description length: ${data.description_length} chars</div>
+                <h4>Suggestions</h4>
+                ${suggestionsHtml}
+            `;
         }
 
         // Auto-refresh jobs and stats
