@@ -90,7 +90,10 @@ class VideoJob(db.Model):
     engine = db.Column(db.String(20), default='local')    # local, ai
     style = db.Column(db.String(50), default='cartoon')
     cut_segments = db.Column(db.String(1024), default='')  # raw "0-3, 10-12"
-    keep_audio = db.Column(db.Boolean, default=True)
+    keep_audio = db.Column(db.Boolean, default=True)       # legacy flag
+    audio_mode = db.Column(db.String(20), default='keep')  # keep, mute, replace, ai_music
+    audio_filename = db.Column(db.String(512))             # uploaded replacement track
+    music_prompt = db.Column(db.String(512), default='')   # optional AI music prompt
     progress = db.Column(db.Integer, default=0)            # 0..100
     stats = db.Column(db.Text)                             # JSON string of result stats
     error_message = db.Column(db.Text)
@@ -108,6 +111,8 @@ class VideoJob(db.Model):
             'style': self.style,
             'cut_segments': self.cut_segments,
             'keep_audio': self.keep_audio,
+            'audio_mode': self.audio_mode,
+            'music_prompt': self.music_prompt,
             'progress': self.progress,
             'stats': self.stats,
             'error_message': self.error_message,

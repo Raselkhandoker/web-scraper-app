@@ -45,8 +45,29 @@ top of the main dashboard).
 3. Pick a **style** and an **engine**, then create the animation and download
    the result. Original audio is kept and trimmed to match.
 
-**Styles:** `cartoon` (bold outlines), `anime` (flat cel-shaded), `sketch`
-(pencil), `paint` (painterly).
+**Styles** (local engine = stylised *approximations* of these techniques):
+`cartoon`, `anime`, `2d`, `traditional`, `flipbook`, `stop_motion`,
+`cutout`, `sand`, `paint_glass`, `clay`, `rotoscope`, `whiteboard`,
+`experimental`, `sketch`. `flipbook`/`stop_motion`/`clay`/`sand` also add the
+choppy "frame-hold" timing of real stop-motion. For a faithful (not
+filter-approximated) result, use the `ai` engine, which passes the style name
+to the model as a prompt.
+
+> Note: "Audio-Animatronics / Autonomatronics" is a physical robotics
+> technique (animated puppets), not a video look, so it is not offered.
+
+**Audio options** (choose one per job):
+
+| Mode | What it does | Needs |
+|------|--------------|-------|
+| `keep` | keep the original audio, trimmed to match | – |
+| `mute` | no audio | – |
+| `replace` | swap in an audio file you upload | an audio upload |
+| `ai_music` | generate style-matched music with AI (MusicGen) | `REPLICATE_API_TOKEN` |
+
+With `ai_music` the server generates a short backing track whose mood matches
+the chosen style (you can also type your own music description); it is muxed
+onto the animation in place of the original audio.
 
 **Two engines**
 

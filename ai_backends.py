@@ -181,8 +181,74 @@ class ReplicateAnimator:
         raise ReplicateError("AI job timed out.")
 
     def _download(self, url: str, output_path: str) -> None:
-        with requests.get(url, stream=True, timeout=300) as resp:
-            resp.raise_for_status()
-            with open(output_path, "wb") as fh:
-                for chunk in resp.iter_content(chunk_size=1 << 16):
-                    fh.write(chunk)
+        _download_url(url, output_path)
+
+
+# --------------------------------------------------------------------------- #
+#  AI music generation (MusicGen)
+# --------------------------------------------------------------------------- #
+
+# Short prompts describing music that suits each animation style.
+STYLE_MUSIC_PROMPTS = {
+    "cartoon": "playful upbeat cartoon background music, bouncy and light",
+    "anime": "emotional anime soundtrack, orchestral and uplifting",
+    "2d": "cheerful 2d cartoon tune, simple melody",
+    "traditional": "warm nostalgic hand-drawn cartoon score, orchestral",
+    "flipbook": "quirky acoustic doodle music, light and sketchy",
+    "stop_motion": "whimsical stop-motion score, plucky strings and marimba",
+    "cutout": "quirky indie folk, playful paper-craft mood",
+    "sand": "calm ambient meditative music, soft piano and pads",
+    "paint_glass": "dreamy cinematic ambient, flowing and painterly",
+    "clay": "silly bouncy claymation music, comedic and fun",
+    "rotoscope": "moody indie electronic, atmospheric",
+    "whiteboard": "light corporate explainer background music, gentle and clean",
+    "experimental": "abstract experimental electronic soundscape",
+    "sketch": "minimal acoustic guitar, thoughtful and simple",
+}
+
+
+class ReplicateMusicGenerator:
+    """Generate background music with MusicGen on Replicate."""
+
+    DEFAULT_MODEL = "meta/musicgen"
+
+    def __init__(self, token: Optional[str] = None, model: Optional[str] = None):
+        self.token = token or os.getenv("REPLICATE_API_TOKEN")
+        if not self.token:
+            raise ReplicateError(
+                "REPLICATE_API_TOKEN is not set. Add it to use AI music, or "
+                "choose 'keep', 'mute', or upload your own audio instead."
+            )
+        self.model = model or os.getenv("REPLICATE_MUSIC_MODEL", self.DEFAULT_MODEL)
+
+    def generate(self, prompt: str, duration: int, output_path: str,
+                 progress_cb: ProgressCB = None,
+                 poll_interval: float = 3.0, timeout: float = 900.0) -> str:
+        rep = ReplicateAnimator.__new__(ReplicateAnimator)  # reuse HTTP helpers
+        rep.token = self.token
+        rep.model = self.model
+        rep.input_key = "prompt"
+
+        version = rep._resolve_version()
+        model_input = {
+            "prompt": prompt,
+            "duration": max(3, min(int(duration) or 8, 30)),
+        }
+        prediction = rep._create_prediction(version, model_input)
+        url = rep._await_prediction(prediction, progress_cb, poll_interval, timeout)
+        _download_url(url, output_path)
+        return output_path
+
+
+def music_prompt_for(style: str, override: str = "") -> str:
+    if override and override.strip():
+        return override.strip()
+    return STYLE_MUSIC_PROMPTS.get(style, "gentle background music")
+
+
+def _download_url(url: str, output_path: str) -> None:
+    with requests.get(url, stream=True, timeout=300) as resp:
+        resp.raise_for_status()
+        with open(output_path, "wb") as fh:
+            for chunk in resp.iter_content(chunk_size=1 << 16):
+                fh.write(chunk)

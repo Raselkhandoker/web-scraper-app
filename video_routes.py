@@ -5,8 +5,8 @@ API endpoints for the video-to-animation feature. Registered as its own
 blueprint so the existing scraper routes stay untouched.
 
 Endpoints (all under /api/video):
-    GET    /styles                 -> available styles + engines
-    POST   /jobs                   -> upload a video + options, start a job
+    GET    /styles                 -> available styles, engines, audio modes
+    POST   /jobs                   -> upload a video (+ optional audio) + options
     GET    /jobs                   -> list jobs
     GET    /jobs/<id>              -> one job (poll this for progress/status)
     GET    /jobs/<id>/source       -> the original uploaded video (for preview)
@@ -23,6 +23,7 @@ import logging
 import threading
 from datetime import datetime
 
+import cv2
 from flask import Blueprint, request, jsonify, send_file, current_app
 
 from models import db, VideoJob
@@ -31,7 +32,9 @@ from video_animator import VideoAnimator, STYLES, parse_cut_segments
 logger = logging.getLogger(__name__)
 video_bp = Blueprint('video', __name__, url_prefix='/api/video')
 
-ALLOWED_EXT = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.mpg', '.mpeg'}
+ALLOWED_VIDEO_EXT = {'.mp4', '.mov', '.avi', '.mkv', '.webm', '.m4v', '.mpg', '.mpeg'}
+ALLOWED_AUDIO_EXT = {'.mp3', '.wav', '.m4a', '.aac', '.ogg', '.flac'}
+AUDIO_MODES = {'keep', 'mute', 'replace', 'ai_music'}
 
 
 # --------------------------------------------------------------------------- #
@@ -53,19 +56,33 @@ def _outputs_dir() -> str:
     return os.path.join(_media_root(), 'outputs')
 
 
+def _video_duration(path: str) -> float:
+    cap = cv2.VideoCapture(path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
+    frames = cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0
+    cap.release()
+    return frames / fps if fps else 0.0
+
+
+def _apply_audio_track(video_path: str, audio_path: str) -> None:
+    """Replace the audio of video_path with audio_path (in place)."""
+    tmp = video_path + '.mux.mp4'
+    VideoAnimator()._mux_replacement_audio(video_path, audio_path, tmp)
+    os.replace(tmp, video_path)
+
+
 # --------------------------------------------------------------------------- #
 #  Background worker
 # --------------------------------------------------------------------------- #
 
 def run_video_job(app, job_id: int):
-    """Process one video job. Runs inside its own app context / thread."""
+    """Process one video job inside its own app context / thread."""
     with app.app_context():
         job = VideoJob.query.get(job_id)
         if not job:
             return
 
         def set_progress(pct: int):
-            # Fresh session write so the polling endpoint sees updates.
             j = VideoJob.query.get(job_id)
             if j:
                 j.progress = int(pct)
@@ -77,26 +94,21 @@ def run_video_job(app, job_id: int):
             db.session.commit()
 
             input_path = os.path.join(_uploads_dir(), job.source_filename)
+            audio_upload = (os.path.join(_uploads_dir(), job.audio_filename)
+                            if job.audio_filename else None)
             out_name = f"anim_{job.id}_{uuid.uuid4().hex[:8]}.mp4"
             output_path = os.path.join(_outputs_dir(), out_name)
+            audio_mode = job.audio_mode or 'keep'
+            cuts = parse_cut_segments(job.cut_segments)
 
             if job.engine == 'ai':
-                # Imported lazily so a missing token never breaks local mode.
-                from ai_backends import ReplicateAnimator
-                animator = ReplicateAnimator()
-                stats = animator.process(
-                    input_path, output_path,
-                    style=job.style, progress_cb=set_progress,
-                )
+                stats = _run_ai_engine(job, input_path, output_path,
+                                       audio_mode, audio_upload, cuts,
+                                       set_progress)
             else:
-                animator = VideoAnimator()
-                stats = animator.process(
-                    input_path, output_path,
-                    style=job.style,
-                    cut_segments=parse_cut_segments(job.cut_segments),
-                    keep_audio=job.keep_audio,
-                    progress_cb=set_progress,
-                )
+                stats = _run_local_engine(job, input_path, output_path,
+                                          audio_mode, audio_upload, cuts,
+                                          set_progress)
 
             job = VideoJob.query.get(job_id)
             job.output_filename = out_name
@@ -105,8 +117,8 @@ def run_video_job(app, job_id: int):
             job.status = 'completed'
             job.completed_at = datetime.utcnow()
             db.session.commit()
-            logger.info("Video job %s completed (%s / %s)",
-                        job_id, job.engine, job.style)
+            logger.info("Video job %s completed (%s / %s / audio=%s)",
+                        job_id, job.engine, job.style, audio_mode)
 
         except Exception as e:  # noqa: BLE001
             logger.exception("Video job %s failed", job_id)
@@ -118,6 +130,57 @@ def run_video_job(app, job_id: int):
                 db.session.commit()
 
 
+def _run_local_engine(job, input_path, output_path, audio_mode, audio_upload,
+                      cuts, set_progress):
+    animator = VideoAnimator()
+    # For AI music we render silent first, then generate + mux music.
+    eff_mode = 'mute' if audio_mode == 'ai_music' else audio_mode
+    stats = animator.process(
+        input_path, output_path, style=job.style, cut_segments=cuts,
+        audio_mode=eff_mode, replacement_audio=audio_upload,
+        progress_cb=set_progress,
+    )
+    if audio_mode == 'ai_music':
+        _add_ai_music(job, output_path)
+        stats['has_audio'] = True
+        stats['audio_mode'] = 'ai_music'
+    return stats
+
+
+def _run_ai_engine(job, input_path, output_path, audio_mode, audio_upload,
+                   cuts, set_progress):
+    from ai_backends import ReplicateAnimator
+    animator = ReplicateAnimator()
+    stats = animator.process(input_path, output_path, style=job.style,
+                             progress_cb=set_progress)
+    # The AI video comes back silent; apply the requested audio afterwards.
+    if audio_mode == 'ai_music':
+        _add_ai_music(job, output_path)
+        stats['has_audio'] = True
+    elif audio_mode == 'replace' and audio_upload:
+        _apply_audio_track(output_path, audio_upload)
+        stats['has_audio'] = True
+    elif audio_mode == 'keep':
+        _apply_audio_track(output_path, input_path)  # original's audio stream
+        stats['has_audio'] = True
+    stats['audio_mode'] = audio_mode
+    return stats
+
+
+def _add_ai_music(job, output_path):
+    """Generate style-matched music and mux it onto output_path."""
+    from ai_backends import ReplicateMusicGenerator, music_prompt_for
+    duration = int(_video_duration(output_path)) or 8
+    prompt = music_prompt_for(job.style, job.music_prompt or '')
+    music_path = output_path + '.music.wav'
+    ReplicateMusicGenerator().generate(prompt, duration, music_path)
+    try:
+        _apply_audio_track(output_path, music_path)
+    finally:
+        if os.path.exists(music_path):
+            os.remove(music_path)
+
+
 # --------------------------------------------------------------------------- #
 #  Routes
 # --------------------------------------------------------------------------- #
@@ -127,8 +190,14 @@ def get_styles():
     return jsonify({
         'styles': [{'id': k, 'description': v} for k, v in STYLES.items()],
         'engines': [
-            {'id': 'local', 'name': 'Local cartoon filter (free, offline)'},
+            {'id': 'local', 'name': 'Local filter (free, offline)'},
             {'id': 'ai', 'name': 'AI service (Replicate - needs API token)'},
+        ],
+        'audio_modes': [
+            {'id': 'keep', 'name': 'Keep original audio'},
+            {'id': 'mute', 'name': 'No audio'},
+            {'id': 'replace', 'name': 'Replace with my audio file'},
+            {'id': 'ai_music', 'name': 'AI music matching the style (needs token)'},
         ],
     }), 200
 
@@ -144,11 +213,9 @@ def create_video_job():
         return jsonify({'error': 'Empty filename'}), 400
 
     ext = os.path.splitext(f.filename)[1].lower()
-    if ext not in ALLOWED_EXT:
-        return jsonify({
-            'error': f'Unsupported file type "{ext}". '
-                     f'Allowed: {", ".join(sorted(ALLOWED_EXT))}'
-        }), 400
+    if ext not in ALLOWED_VIDEO_EXT:
+        return jsonify({'error': f'Unsupported video type "{ext}". '
+                        f'Allowed: {", ".join(sorted(ALLOWED_VIDEO_EXT))}'}), 400
 
     style = request.form.get('style', 'cartoon')
     if style not in STYLES:
@@ -157,11 +224,27 @@ def create_video_job():
     if engine not in ('local', 'ai'):
         return jsonify({'error': f'Unknown engine "{engine}"'}), 400
 
-    # Save the upload with a unique name.
+    audio_mode = request.form.get('audio_mode', 'keep')
+    if audio_mode not in AUDIO_MODES:
+        return jsonify({'error': f'Unknown audio mode "{audio_mode}"'}), 400
+
+    # Save the video upload.
     stored_name = f"{uuid.uuid4().hex}{ext}"
     f.save(os.path.join(_uploads_dir(), stored_name))
 
-    keep_audio = request.form.get('keep_audio', 'true').lower() != 'false'
+    # Optional replacement-audio upload (for audio_mode = replace).
+    audio_stored = None
+    if audio_mode == 'replace':
+        af = request.files.get('audio')
+        if not af or not af.filename:
+            return jsonify({'error': 'audio_mode "replace" needs an audio file '
+                            '(field name: audio)'}), 400
+        aext = os.path.splitext(af.filename)[1].lower()
+        if aext not in ALLOWED_AUDIO_EXT:
+            return jsonify({'error': f'Unsupported audio type "{aext}". '
+                            f'Allowed: {", ".join(sorted(ALLOWED_AUDIO_EXT))}'}), 400
+        audio_stored = f"{uuid.uuid4().hex}{aext}"
+        af.save(os.path.join(_uploads_dir(), audio_stored))
 
     job = VideoJob(
         job_name=request.form.get('job_name') or f.filename,
@@ -170,7 +253,10 @@ def create_video_job():
         engine=engine,
         style=style,
         cut_segments=request.form.get('cut_segments', '').strip(),
-        keep_audio=keep_audio,
+        keep_audio=(audio_mode == 'keep'),
+        audio_mode=audio_mode,
+        audio_filename=audio_stored,
+        music_prompt=request.form.get('music_prompt', '').strip(),
         status='pending',
         progress=0,
     )
@@ -230,6 +316,7 @@ def delete_video_job(job_id):
         return jsonify({'error': 'Job not found'}), 404
 
     for folder, name in ((_uploads_dir(), job.source_filename),
+                         (_uploads_dir(), job.audio_filename),
                          (_outputs_dir(), job.output_filename)):
         if name:
             p = os.path.join(folder, name)

@@ -93,10 +93,20 @@
             <input type="text" id="cut" placeholder="e.g. 0-3, 10-12.5">
             <div class="hint">Play the preview to find timestamps. Leave empty to keep everything. (Local engine only.)</div>
 
-            <label class="row" style="margin-top:14px;">
-                <input type="checkbox" id="keep_audio" checked>
-                <span>Keep original audio</span>
-            </label>
+            <label>Audio</label>
+            <select id="audio_mode"></select>
+
+            <div id="audio-file-wrap" style="display:none;">
+                <label>Replacement audio file</label>
+                <input type="file" id="audio_file" accept="audio/*">
+                <div class="hint">mp3, wav, m4a… This replaces the original audio.</div>
+            </div>
+
+            <div id="music-prompt-wrap" style="display:none;">
+                <label>Music description (optional)</label>
+                <input type="text" id="music_prompt" placeholder="leave empty to auto-match the style">
+                <div class="hint">AI music needs a Replicate API token set on the server.</div>
+            </div>
 
             <button id="go">Create animation</button>
             <div class="err" id="form-err"></div>
@@ -119,11 +129,21 @@
 const $ = id => document.getElementById(id);
 let pollTimer = null;
 
-// Load styles
+// Load styles + audio modes
 fetch('/api/video/styles').then(r => r.json()).then(d => {
     $('style').innerHTML = d.styles
         .map(s => `<option value="${s.id}">${s.id} — ${s.description}</option>`)
         .join('');
+    $('audio_mode').innerHTML = (d.audio_modes || [])
+        .map(a => `<option value="${a.id}">${a.name}</option>`)
+        .join('');
+});
+
+// Show/hide audio sub-fields based on the chosen mode.
+$('audio_mode').addEventListener('change', e => {
+    const m = e.target.value;
+    $('audio-file-wrap').style.display = (m === 'replace') ? 'block' : 'none';
+    $('music-prompt-wrap').style.display = (m === 'ai_music') ? 'block' : 'none';
 });
 
 // Preview + duration
@@ -145,13 +165,25 @@ $('go').addEventListener('click', () => {
     const f = $('file').files[0];
     if (!f) { $('form-err').textContent = 'Please choose a video file first.'; return; }
 
+    const audioMode = $('audio_mode').value;
+    if (audioMode === 'replace' && !$('audio_file').files[0]) {
+        $('form-err').textContent = 'Please choose a replacement audio file (or pick another audio option).';
+        return;
+    }
+
     const fd = new FormData();
     fd.append('video', f);
     fd.append('job_name', $('job_name').value || f.name);
     fd.append('engine', $('engine').value);
     fd.append('style', $('style').value);
     fd.append('cut_segments', $('cut').value);
-    fd.append('keep_audio', $('keep_audio').checked ? 'true' : 'false');
+    fd.append('audio_mode', audioMode);
+    if (audioMode === 'replace' && $('audio_file').files[0]) {
+        fd.append('audio', $('audio_file').files[0]);
+    }
+    if (audioMode === 'ai_music') {
+        fd.append('music_prompt', $('music_prompt').value || '');
+    }
 
     $('go').disabled = true;
     $('current').textContent = 'Uploading…';
