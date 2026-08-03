@@ -1,0 +1,7 @@
+# Promo video builder dependencies
+Pillow>=9.0            # drawing background, captions, outro card
+imageio-ffmpeg>=0.4   # bundled static ffmpeg (skip if ffmpeg is on PATH)
+
+# Optional:
+#   opencv-python-headless  -> faster/robust probing (falls back to ffmpeg)
+#   flask                   -> only needed for the web upload UI (webapp.py)

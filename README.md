@@ -31,6 +31,22 @@ A full-stack web scraping application with an interactive dashboard. Extract dat
 - SQLite database for job and data storage
 - Thread-safe job execution
 
+## 🎬 Promo Video Builder
+
+This repo also includes a standalone tool that turns a raw clip into a styled
+vertical promo video (1080×1920): branded background, footage in a rounded
+centre panel, bold captions, and a call-to-action outro card. Upload a video and
+it builds automatically.
+
+```bash
+pip install -r video_promo/requirements.txt flask
+python -m video_promo.webapp        # web upload page at http://localhost:5001
+# or the CLI:
+python -m video_promo.cli clip.mp4 -o promo.mp4 --caption "YOUR TEXT" --brand "MY BRAND"
+```
+
+See [`video_promo/README.md`](video_promo/README.md) for full usage.
+
 ## 🚀 Quick Start
 
 ### Prerequisites

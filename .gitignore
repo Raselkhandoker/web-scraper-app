@@ -42,3 +42,8 @@ node_modules/
 dist/
 build/
 *.log
+
+# Promo video builder — generated outputs (keep source + layout.png)
+*.mp4
+*.mov
+promo_out.mp4
