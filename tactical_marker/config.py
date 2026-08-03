@@ -41,5 +41,10 @@ class MarkerConfig:
     arrow_lookback: int = 8              # frames used to compute motion vector
     arrow_scale: float = 3.5             # how far to project the motion arrow
 
+    # ball-follow tuning
+    bridge_ball: bool = True         # bridge ball-detection gaps with optical flow
+    max_bridge_frames: int = 20      # max consecutive frames to bridge without a real hit
+    sticky_frames: int = 12          # keep marking the carrier through this many ball-less frames
+
     # performance
     max_seconds: Optional[float] = None  # cap processing length (None = full)

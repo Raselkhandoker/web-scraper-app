@@ -58,48 +58,85 @@ def _has_audio(path, ffmpeg) -> bool:
 # analysis
 # --------------------------------------------------------------------------- #
 class FrameData:
-    __slots__ = ("players", "ball")
+    __slots__ = ("players", "ball", "ball_real")
 
     def __init__(self):
         self.players: Dict[int, Tuple[float, float, float]] = {}  # tid -> (cx, feet, w)
         self.ball: Optional[Tuple[float, float]] = None
+        self.ball_real: bool = False   # True = YOLO detection, False = optical-flow bridge
 
 
-def _analyse(model, cfg: MarkerConfig, max_frames: int, log) -> List[FrameData]:
+_LK = dict(winSize=(21, 21), maxLevel=3,
+           criteria=(cv2.TERM_CRITERIA_EPS | cv2.TERM_CRITERIA_COUNT, 20, 0.03))
+
+
+def _analyse(model, cfg: MarkerConfig, max_frames: int, log):
+    """Detect + track players/ball, and bridge ball gaps with optical flow.
+
+    Returns (frames, real_ball_count).
+    """
     frames: List[FrameData] = []
     stream = model.track(
         source=cfg.input_path, stream=True, persist=True,
         classes=[0, 32], conf=cfg.conf, imgsz=cfg.imgsz,
         tracker="bytetrack.yaml", verbose=False,
     )
+    prev_gray = None
+    ball_pt = None            # current best (x, y) estimate
+    bridge = 0                # consecutive frames tracked without a real detection
+    real_count = 0
     n = 0
     for res in stream:
         if max_frames and n >= max_frames:
             break
         fd = FrameData()
-        mask = pitch.pitch_mask(res.orig_img) if cfg.only_on_pitch else None
+        img = res.orig_img
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        mask = pitch.pitch_mask(img) if cfg.only_on_pitch else None
+
+        best_ball = None
         if res.boxes is not None and res.boxes.id is not None:
             xyxy = res.boxes.xyxy.cpu().numpy()
             ids = res.boxes.id.cpu().numpy().astype(int)
             clss = res.boxes.cls.cpu().numpy().astype(int)
-            best_ball = None
             for (x1, y1, x2, y2), tid, cl in zip(xyxy, ids, clss):
                 if cl == 32:
-                    bx, by = (x1 + x2) / 2, (y1 + y2) / 2
-                    # keep the largest/most-confident ball if several
                     if best_ball is None:
-                        best_ball = (bx, by)
+                        best_ball = ((x1 + x2) / 2, (y1 + y2) / 2)
                     continue
                 if cfg.only_on_pitch and mask is not None and \
                         not pitch.on_pitch(mask, x1, y1, x2, y2):
                     continue
                 fd.players[int(tid)] = ((x1 + x2) / 2, y2, (x2 - x1))
-            fd.ball = best_ball
+
+        if best_ball is not None:
+            # real detection anchors the tracker
+            ball_pt = best_ball
+            fd.ball, fd.ball_real, bridge = best_ball, True, 0
+            real_count += 1
+        elif (cfg.bridge_ball and ball_pt is not None and prev_gray is not None
+              and bridge < cfg.max_bridge_frames):
+            p0 = np.array([[ball_pt]], np.float32)
+            p1, st, err = cv2.calcOpticalFlowPyrLK(prev_gray, gray, p0, None, **_LK)
+            if st is not None and st[0][0] == 1 and err is not None and err[0][0] < 40:
+                nx, ny = float(p1[0][0][0]), float(p1[0][0][1])
+                # reject implausible jumps
+                if abs(nx - ball_pt[0]) < 80 and abs(ny - ball_pt[1]) < 80:
+                    ball_pt = (nx, ny)
+                    fd.ball, fd.ball_real, bridge = ball_pt, False, bridge + 1
+                else:
+                    ball_pt = None
+            else:
+                ball_pt = None
+        else:
+            ball_pt = None
+
+        prev_gray = gray
         frames.append(fd)
         n += 1
         if n % 30 == 0:
             log(f"  analysed {n}/{max_frames or '?'} frames…")
-    return frames
+    return frames, real_count
 
 
 def _interp_ball(frames: List[FrameData]) -> List[Optional[Tuple[float, float]]]:
@@ -164,6 +201,33 @@ def _smooth_carrier(raw: List[Optional[int]], win=7) -> List[Optional[int]]:
     return sm
 
 
+def _sticky_fill(carrier: List[Optional[int]], hold: int) -> List[Optional[int]]:
+    """Hold the last carrier across short None gaps (ball briefly lost).
+
+    Only bridges a gap if the SAME player holds the ball on both sides, so we
+    don't invent possession across an actual pass/turnover.
+    """
+    if hold <= 0:
+        return carrier
+    out = list(carrier)
+    n = len(out)
+    i = 0
+    while i < n:
+        if out[i] is None:
+            j = i
+            while j < n and out[j] is None:
+                j += 1
+            before = out[i - 1] if i > 0 else None
+            after = out[j] if j < n else None
+            if before is not None and before == after and (j - i) <= hold:
+                for k in range(i, j):
+                    out[k] = before
+            i = j
+        else:
+            i += 1
+    return out
+
+
 def _segments(carrier: List[Optional[int]], min_len=5):
     """Contiguous possession runs -> list of (tid, start, end) inclusive."""
     segs = []
@@ -203,13 +267,14 @@ def process(cfg: MarkerConfig, progress=None) -> str:
 
     model = YOLO(cfg.model)
     log("Analysing clip (detect + track ball & players)…")
-    frames = _analyse(model, cfg, max_frames, log)
+    frames, real_count = _analyse(model, cfg, max_frames, log)
 
     traj = _interp_ball(frames)
-    ball_seen = sum(1 for f in frames if f.ball is not None)
-    log(f"Ball detected in {ball_seen}/{len(frames)} frames "
-        f"({100*ball_seen/max(len(frames),1):.0f}%).")
-    if ball_seen == 0:
+    covered = sum(1 for f in frames if f.ball is not None)
+    nf = max(len(frames), 1)
+    log(f"Ball: detected {real_count}/{len(frames)} ({100*real_count/nf:.0f}%), "
+        f"bridged to {covered}/{len(frames)} ({100*covered/nf:.0f}%) coverage.")
+    if real_count == 0:
         raise RuntimeError(
             "The ball was never detected — ball-follow mode can't work on this "
             "clip automatically. Try a clearer/zoomed clip, a bigger model "
@@ -217,6 +282,7 @@ def process(cfg: MarkerConfig, progress=None) -> str:
 
     raw = _carrier_per_frame(frames, traj)
     carrier = _smooth_carrier(raw)
+    carrier = _sticky_fill(carrier, cfg.sticky_frames)
     segs = _segments(carrier)
     log(f"Found {len(segs)} possession segments → "
         f"{max(len(segs) - 1, 0)} passes.")
