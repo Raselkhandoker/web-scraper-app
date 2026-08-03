@@ -246,6 +246,46 @@ def _segments(carrier: List[Optional[int]], min_len=5):
     return segs
 
 
+def _latched_possession(frames, traj, cfg):
+    """Follow possession using reliable player tracking, anchored by the ball.
+
+    The ball only tells us *when* possession changes; between those moments the
+    mark stays latched onto the current carrier (whose player track is reliable),
+    so marking stays continuous even when the ball is briefly undetected.
+
+    Returns (carrier_per_frame, passes) where passes = [(frame, from_tid, to_tid)].
+    """
+    n = len(frames)
+    cand = _carrier_per_frame(frames, traj)   # nearest player to the ball, or None
+    carrier = [None] * n
+    passes = []
+    cur = None
+    pend = None
+    pend_count = 0
+    last_seen = {}
+    for i in range(n):
+        c = cand[i]
+        if c is not None and c == cur:
+            pend, pend_count = None, 0
+        elif c is not None and c != cur:
+            if c == pend:
+                pend_count += 1
+            else:
+                pend, pend_count = c, 1
+            if pend_count >= cfg.switch_frames or cur is None:
+                if cur is not None:
+                    passes.append((i, cur, c))
+                cur, pend, pend_count = c, None, 0
+        # drop a carrier whose player track has been gone too long
+        if cur is not None:
+            if cur in frames[i].players:
+                last_seen[cur] = i
+            elif i - last_seen.get(cur, i) > cfg.carrier_drop_frames:
+                cur = None
+        carrier[i] = cur
+    return carrier, passes
+
+
 # --------------------------------------------------------------------------- #
 # public entry
 # --------------------------------------------------------------------------- #
@@ -280,28 +320,17 @@ def process(cfg: MarkerConfig, progress=None) -> str:
             "clip automatically. Try a clearer/zoomed clip, a bigger model "
             "(--model yolov8s.pt --imgsz 1280), or the all-players mode.")
 
-    raw = _carrier_per_frame(frames, traj)
-    carrier = _smooth_carrier(raw)
-    carrier = _sticky_fill(carrier, cfg.sticky_frames)
-    segs = _segments(carrier)
-    log(f"Found {len(segs)} possession segments → "
-        f"{max(len(segs) - 1, 0)} passes.")
+    carrier, passes = _latched_possession(frames, traj, cfg)
+    marked_cov = sum(1 for c in carrier if c is not None)
+    log(f"Marked carrier in {marked_cov}/{len(frames)} frames "
+        f"({100*marked_cov/nf:.0f}%) → {len(passes)} passes.")
 
-    # Build a per-frame plan: which player is marked, and any active pass arrow.
-    marked: List[Optional[int]] = [None] * len(frames)
-    arrows: List[Optional[Tuple[int, int]]] = [None] * len(frames)  # (from_tid,to_tid)
-    for s in range(len(segs)):
-        tid, a, b = segs[s]
-        for k in range(a, b + 1):
-            marked[k] = tid
-        # pass from this segment to the next
-        if s + 1 < len(segs):
-            ntid, na, nb = segs[s + 1]
-            if ntid != tid:
-                # pass window = gap between segments (ball in flight)
-                for k in range(b, na + 1):
-                    marked[k] = tid          # keep marking passer until arrival
-                    arrows[k] = (tid, ntid)
+    # Per-frame plan: the marked player, and any active pass arrow.
+    marked: List[Optional[int]] = list(carrier)
+    arrows: List[Optional[Tuple[int, int]]] = [None] * len(frames)
+    for (fr, a, b) in passes:
+        for k in range(max(0, fr - 6), min(len(frames), fr + 6)):
+            arrows[k] = (a, b)
 
     # ---- render pass ----
     work = tempfile.mkdtemp(prefix="ballfollow_")
@@ -332,7 +361,8 @@ def process(cfg: MarkerConfig, progress=None) -> str:
             cx, feet, w = fd.players[mk]
             if cfg.spotlight:
                 draw.spotlight(frame, int(cx), int(feet), max(140, int(w * 2.2)),
-                               color=cfg.spotlight_color, alpha=cfg.spotlight_alpha)
+                               color=cfg.spotlight_color, alpha=cfg.spotlight_alpha,
+                               top_y=int(H * cfg.spotlight_top_frac))
             if cfg.rings:
                 draw.ground_ellipse(frame, cx, feet, max(50, w * 1.2),
                                     color=cfg.ring_color, alpha=cfg.ring_alpha)
@@ -351,9 +381,14 @@ def process(cfg: MarkerConfig, progress=None) -> str:
 
     out = cfg.output_path
     os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
-    if ffmpeg and _has_audio(cfg.input_path, ffmpeg) and not cfg.max_seconds:
-        subprocess.run([ffmpeg, "-y", "-i", silent, "-i", cfg.input_path,
-                        "-map", "0:v", "-map", "1:a", "-c:v", "libx264",
+    if ffmpeg and _has_audio(cfg.input_path, ffmpeg):
+        # mux the original audio (trimmed to the rendered length for segments)
+        rendered_secs = idx / fps
+        audio_in = ["-i", cfg.input_path]
+        trim = ["-t", f"{rendered_secs:.3f}"] if cfg.max_seconds else []
+        subprocess.run([ffmpeg, "-y", "-i", silent, *audio_in,
+                        "-map", "0:v", "-map", "1:a", *trim,
+                        "-c:v", "libx264",
                         "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "veryfast",
                         "-c:a", "aac", "-b:a", "160k", "-shortest",
                         "-movflags", "+faststart", out],

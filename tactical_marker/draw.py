@@ -32,12 +32,17 @@ def player_ring(img, cx, cy, width, color=(255, 255, 255), thickness=4):
                 0, 0, 360, color, thickness, lineType=cv2.LINE_AA)
 
 
-def spotlight(img, cx, cy_feet, bottom_w, color=(0, 180, 255), alpha=0.28):
-    """Vertical light beam from the top of the frame down to the player."""
+def spotlight(img, cx, cy_feet, bottom_w, color=(0, 180, 255), alpha=0.28,
+              top_y=0):
+    """Vertical light beam from ``top_y`` down to the player.
+
+    ``top_y`` lets the beam start below a fixed overlay (e.g. a scoreboard at
+    the top of the frame) instead of running to the very top edge.
+    """
     top_w = int(bottom_w * 0.65)
     bot_w = int(bottom_w)
     overlay = img.copy()
-    pts = np.array([[cx - top_w // 2, 0], [cx + top_w // 2, 0],
+    pts = np.array([[cx - top_w // 2, int(top_y)], [cx + top_w // 2, int(top_y)],
                     [cx + bot_w // 2, int(cy_feet)],
                     [cx - bot_w // 2, int(cy_feet)]], np.int32)
     cv2.fillPoly(overlay, [pts], color)

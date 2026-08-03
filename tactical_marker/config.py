@@ -44,7 +44,10 @@ class MarkerConfig:
     # ball-follow tuning
     bridge_ball: bool = True         # bridge ball-detection gaps with optical flow
     max_bridge_frames: int = 20      # max consecutive frames to bridge without a real hit
-    sticky_frames: int = 12          # keep marking the carrier through this many ball-less frames
+    sticky_frames: int = 12          # (legacy) short-gap carrier hold
+    switch_frames: int = 3           # a new carrier must lead for this many frames to take over
+    carrier_drop_frames: int = 45    # drop the mark if the carrier isn't seen for this long
+    spotlight_top_frac: float = 0.15  # spotlight beam starts this far down (clears top scoreboards)
 
     # performance
     max_seconds: Optional[float] = None  # cap processing length (None = full)
