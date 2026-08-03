@@ -10,6 +10,11 @@ class MarkerConfig:
     input_path: str
     output_path: str = "marked.mp4"
 
+    # marking mode:
+    #   "ball-follow" -> mark only the ball carrier + pass arrows (default)
+    #   "all-players" -> ring every detected player
+    mode: str = "ball-follow"
+
     # detection / tracking
     model: str = "yolov8n.pt"      # auto-downloaded on first use
     conf: float = 0.25             # detection confidence threshold

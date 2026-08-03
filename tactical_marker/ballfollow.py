@@ -1,0 +1,304 @@
+"""Ball-follow marking: mark only the player on the ball, and passes.
+
+Instead of ringing every player, this mode follows the ball:
+
+  * mark **only the current ball carrier** (spotlight + ring),
+  * when the ball moves to another player, that's a **pass** — draw an arrow
+    from the passer to the receiver and move the mark onto the receiver,
+  * repeat down the chain (player 1 → 2 → 3 …).
+
+It works in two passes over the clip (offline), so it can "see the future":
+
+  1. **Analyse** — detect + track players and the ball every frame; store the
+     lightweight per-frame data (no images kept).
+  2. Build a smoothed **ball trajectory**, a **possession timeline** (who holds
+     the ball, when) and the **pass events** between possession segments.
+  3. **Render** — re-read the frames and draw the mark on the current carrier
+     plus a pass arrow across each pass window.
+"""
+from __future__ import annotations
+
+import os
+import shutil
+import subprocess
+import tempfile
+from typing import Dict, List, Optional, Tuple
+
+import cv2
+import numpy as np
+
+from . import draw
+from . import pitch
+from .config import MarkerConfig
+
+
+# --------------------------------------------------------------------------- #
+# small helpers (ffmpeg / audio) — shared shape with processor.py
+# --------------------------------------------------------------------------- #
+def _find_ffmpeg() -> Optional[str]:
+    exe = shutil.which("ffmpeg")
+    if exe:
+        return exe
+    try:
+        import imageio_ffmpeg
+        return imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        return None
+
+
+def _has_audio(path, ffmpeg) -> bool:
+    if not ffmpeg:
+        return False
+    p = subprocess.run([ffmpeg, "-i", path],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    return "Audio:" in p.stderr.decode("utf-8", "ignore")
+
+
+# --------------------------------------------------------------------------- #
+# analysis
+# --------------------------------------------------------------------------- #
+class FrameData:
+    __slots__ = ("players", "ball")
+
+    def __init__(self):
+        self.players: Dict[int, Tuple[float, float, float]] = {}  # tid -> (cx, feet, w)
+        self.ball: Optional[Tuple[float, float]] = None
+
+
+def _analyse(model, cfg: MarkerConfig, max_frames: int, log) -> List[FrameData]:
+    frames: List[FrameData] = []
+    stream = model.track(
+        source=cfg.input_path, stream=True, persist=True,
+        classes=[0, 32], conf=cfg.conf, imgsz=cfg.imgsz,
+        tracker="bytetrack.yaml", verbose=False,
+    )
+    n = 0
+    for res in stream:
+        if max_frames and n >= max_frames:
+            break
+        fd = FrameData()
+        mask = pitch.pitch_mask(res.orig_img) if cfg.only_on_pitch else None
+        if res.boxes is not None and res.boxes.id is not None:
+            xyxy = res.boxes.xyxy.cpu().numpy()
+            ids = res.boxes.id.cpu().numpy().astype(int)
+            clss = res.boxes.cls.cpu().numpy().astype(int)
+            best_ball = None
+            for (x1, y1, x2, y2), tid, cl in zip(xyxy, ids, clss):
+                if cl == 32:
+                    bx, by = (x1 + x2) / 2, (y1 + y2) / 2
+                    # keep the largest/most-confident ball if several
+                    if best_ball is None:
+                        best_ball = (bx, by)
+                    continue
+                if cfg.only_on_pitch and mask is not None and \
+                        not pitch.on_pitch(mask, x1, y1, x2, y2):
+                    continue
+                fd.players[int(tid)] = ((x1 + x2) / 2, y2, (x2 - x1))
+            fd.ball = best_ball
+        frames.append(fd)
+        n += 1
+        if n % 30 == 0:
+            log(f"  analysed {n}/{max_frames or '?'} frames…")
+    return frames
+
+
+def _interp_ball(frames: List[FrameData]) -> List[Optional[Tuple[float, float]]]:
+    """Fill gaps in the ball trajectory by linear interpolation."""
+    known = [(i, f.ball) for i, f in enumerate(frames) if f.ball is not None]
+    traj: List[Optional[Tuple[float, float]]] = [None] * len(frames)
+    if not known:
+        return traj
+    for i, b in known:
+        traj[i] = b
+    # interpolate interior gaps
+    for a in range(len(known) - 1):
+        (i0, b0), (i1, b1) = known[a], known[a + 1]
+        if i1 - i0 <= 1:
+            continue
+        if i1 - i0 > 45:            # too long a gap: leave as None (ball lost)
+            continue
+        for k in range(i0 + 1, i1):
+            t = (k - i0) / (i1 - i0)
+            traj[k] = (b0[0] * (1 - t) + b1[0] * t,
+                       b0[1] * (1 - t) + b1[1] * t)
+    # pad the ends with the nearest known position
+    first_i = known[0][0]
+    for k in range(0, first_i):
+        traj[k] = known[0][1]
+    last_i = known[-1][0]
+    for k in range(last_i + 1, len(frames)):
+        traj[k] = known[-1][1]
+    return traj
+
+
+def _carrier_per_frame(frames, traj, dist_scale=1.6) -> List[Optional[int]]:
+    """Nearest player to the ball, if close enough (else None = in flight)."""
+    out: List[Optional[int]] = []
+    for f, ball in zip(frames, traj):
+        if ball is None or not f.players:
+            out.append(None)
+            continue
+        bx, by = ball
+        best, bestd, bestw = None, 1e18, 1.0
+        for tid, (cx, feet, w) in f.players.items():
+            d = (cx - bx) ** 2 + (feet - by) ** 2
+            if d < bestd:
+                best, bestd, bestw = tid, d, w
+        thresh = (max(55, bestw * dist_scale)) ** 2
+        out.append(best if bestd <= thresh else None)
+    return out
+
+
+def _smooth_carrier(raw: List[Optional[int]], win=7) -> List[Optional[int]]:
+    """Majority-vote smoothing + fill short None gaps to stabilise possession."""
+    n = len(raw)
+    sm: List[Optional[int]] = [None] * n
+    for i in range(n):
+        lo, hi = max(0, i - win // 2), min(n, i + win // 2 + 1)
+        counts: Dict[int, int] = {}
+        for k in range(lo, hi):
+            if raw[k] is not None:
+                counts[raw[k]] = counts.get(raw[k], 0) + 1
+        if counts:
+            sm[i] = max(counts, key=counts.get)
+    return sm
+
+
+def _segments(carrier: List[Optional[int]], min_len=5):
+    """Contiguous possession runs -> list of (tid, start, end) inclusive."""
+    segs = []
+    i, n = 0, len(carrier)
+    while i < n:
+        if carrier[i] is None:
+            i += 1
+            continue
+        tid = carrier[i]
+        j = i
+        while j + 1 < n and carrier[j + 1] == tid:
+            j += 1
+        if j - i + 1 >= min_len:
+            segs.append((tid, i, j))
+        i = j + 1
+    return segs
+
+
+# --------------------------------------------------------------------------- #
+# public entry
+# --------------------------------------------------------------------------- #
+def process(cfg: MarkerConfig, progress=None) -> str:
+    def log(m):
+        if progress:
+            progress(m)
+
+    from ultralytics import YOLO
+
+    ffmpeg = _find_ffmpeg()
+    cap = cv2.VideoCapture(cfg.input_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+    total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+    W = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+    H = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    cap.release()
+    max_frames = int(cfg.max_seconds * fps) if cfg.max_seconds else total
+
+    model = YOLO(cfg.model)
+    log("Analysing clip (detect + track ball & players)…")
+    frames = _analyse(model, cfg, max_frames, log)
+
+    traj = _interp_ball(frames)
+    ball_seen = sum(1 for f in frames if f.ball is not None)
+    log(f"Ball detected in {ball_seen}/{len(frames)} frames "
+        f"({100*ball_seen/max(len(frames),1):.0f}%).")
+    if ball_seen == 0:
+        raise RuntimeError(
+            "The ball was never detected — ball-follow mode can't work on this "
+            "clip automatically. Try a clearer/zoomed clip, a bigger model "
+            "(--model yolov8s.pt --imgsz 1280), or the all-players mode.")
+
+    raw = _carrier_per_frame(frames, traj)
+    carrier = _smooth_carrier(raw)
+    segs = _segments(carrier)
+    log(f"Found {len(segs)} possession segments → "
+        f"{max(len(segs) - 1, 0)} passes.")
+
+    # Build a per-frame plan: which player is marked, and any active pass arrow.
+    marked: List[Optional[int]] = [None] * len(frames)
+    arrows: List[Optional[Tuple[int, int]]] = [None] * len(frames)  # (from_tid,to_tid)
+    for s in range(len(segs)):
+        tid, a, b = segs[s]
+        for k in range(a, b + 1):
+            marked[k] = tid
+        # pass from this segment to the next
+        if s + 1 < len(segs):
+            ntid, na, nb = segs[s + 1]
+            if ntid != tid:
+                # pass window = gap between segments (ball in flight)
+                for k in range(b, na + 1):
+                    marked[k] = tid          # keep marking passer until arrival
+                    arrows[k] = (tid, ntid)
+
+    # ---- render pass ----
+    work = tempfile.mkdtemp(prefix="ballfollow_")
+    silent = os.path.join(work, "silent.mp4")
+    writer = cv2.VideoWriter(silent, cv2.VideoWriter_fourcc(*"mp4v"),
+                             fps, (W, H))
+    cap = cv2.VideoCapture(cfg.input_path)
+    log("Rendering marked video…")
+    idx = 0
+    while idx < len(frames):
+        ok, frame = cap.read()
+        if not ok:
+            break
+        fd = frames[idx]
+
+        # pass arrow (draw under the ring)
+        ar = arrows[idx]
+        if cfg.arrows and ar is not None:
+            a_tid, b_tid = ar
+            if a_tid in fd.players and b_tid in fd.players:
+                ax, afeet, _ = fd.players[a_tid]
+                bx, bfeet, _ = fd.players[b_tid]
+                draw.arrow(frame, (ax, afeet), (bx, bfeet),
+                           color=cfg.arrow_color)
+
+        mk = marked[idx]
+        if mk in fd.players:
+            cx, feet, w = fd.players[mk]
+            if cfg.spotlight:
+                draw.spotlight(frame, int(cx), int(feet), max(140, int(w * 2.2)),
+                               color=cfg.spotlight_color, alpha=cfg.spotlight_alpha)
+            if cfg.rings:
+                draw.ground_ellipse(frame, cx, feet, max(50, w * 1.2),
+                                    color=cfg.ring_color, alpha=cfg.ring_alpha)
+        # also mark the receiver as the ball arrives
+        if cfg.rings and ar is not None and ar[1] in fd.players:
+            rx, rfeet, rw = fd.players[ar[1]]
+            draw.ground_ellipse(frame, rx, rfeet, max(50, rw * 1.2),
+                                color=cfg.ring_color, alpha=cfg.ring_alpha * 0.7)
+
+        writer.write(frame)
+        idx += 1
+        if idx % 30 == 0:
+            log(f"  rendered {idx}/{len(frames)} frames…")
+    writer.release()
+    cap.release()
+
+    out = cfg.output_path
+    os.makedirs(os.path.dirname(os.path.abspath(out)) or ".", exist_ok=True)
+    if ffmpeg and _has_audio(cfg.input_path, ffmpeg) and not cfg.max_seconds:
+        subprocess.run([ffmpeg, "-y", "-i", silent, "-i", cfg.input_path,
+                        "-map", "0:v", "-map", "1:a", "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "veryfast",
+                        "-c:a", "aac", "-b:a", "160k", "-shortest",
+                        "-movflags", "+faststart", out],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    elif ffmpeg:
+        subprocess.run([ffmpeg, "-y", "-i", silent, "-c:v", "libx264",
+                        "-pix_fmt", "yuv420p", "-crf", "20", "-preset", "veryfast",
+                        "-movflags", "+faststart", out],
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    else:
+        shutil.copy(silent, out)
+    shutil.rmtree(work, ignore_errors=True)
+    log(f"Done → {out}")
+    return out

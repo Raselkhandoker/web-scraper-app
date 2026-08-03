@@ -59,6 +59,14 @@ def _pick_key_id(tracks, ball_xy, frame_shape):
 
 
 def process(cfg: MarkerConfig, progress=None) -> str:
+    # Ball-follow is a separate two-pass pipeline.
+    if cfg.mode == "ball-follow":
+        from . import ballfollow
+        return ballfollow.process(cfg, progress=progress)
+    return _process_all_players(cfg, progress=progress)
+
+
+def _process_all_players(cfg: MarkerConfig, progress=None) -> str:
     def log(m):
         if progress:
             progress(m)

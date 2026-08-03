@@ -63,11 +63,14 @@ PAGE = """
  <form method="post" action="{{ url_for('do_build') }}" enctype="multipart/form-data">
    <label>Your football video *</label>
    <input type="file" name="video" accept="video/*" required>
+   <label>Mode</label>
+   <div class="opt"><input type="radio" name="mode" value="ball-follow" checked><span><b>Follow the ball</b> — mark only the carrier + passes</span></div>
+   <div class="opt"><input type="radio" name="mode" value="all-players"><span>Ring every player</span></div>
    <label>Markings</label>
-   <div class="opt"><input type="checkbox" name="rings" checked><span>Ground rings under players</span></div>
-   <div class="opt"><input type="checkbox" name="spotlight" checked><span>Spotlight on the key player</span></div>
-   <div class="opt"><input type="checkbox" name="arrows" checked><span>Motion arrows</span></div>
-   <div class="opt"><input type="checkbox" name="team"><span>Colour rings by team</span></div>
+   <div class="opt"><input type="checkbox" name="rings" checked><span>Rings under player(s)</span></div>
+   <div class="opt"><input type="checkbox" name="spotlight" checked><span>Spotlight</span></div>
+   <div class="opt"><input type="checkbox" name="arrows" checked><span>Pass / motion arrows</span></div>
+   <div class="opt"><input type="checkbox" name="team"><span>Colour rings by team (all-players mode)</span></div>
    <label>Only process first N seconds (optional)</label>
    <input type="text" name="max_seconds" placeholder="e.g. 15 — leave blank for whole clip"
       style="width:100%;padding:10px;border:1px solid #2c4a36;border-radius:10px;background:#0d1f14;color:#eaf2ec">
@@ -105,8 +108,11 @@ def do_build():
     except ValueError:
         max_seconds = None
 
+    mode = request.form.get("mode", "ball-follow")
+    if mode not in ("ball-follow", "all-players"):
+        mode = "ball-follow"
     cfg = MarkerConfig(
-        input_path=src, output_path=out,
+        input_path=src, output_path=out, mode=mode,
         rings="rings" in request.form,
         spotlight="spotlight" in request.form,
         arrows="arrows" in request.form,

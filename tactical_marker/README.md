@@ -1,24 +1,43 @@
 # ⚽ Tactical Marker
 
 Automatically annotate a football clip with **tactical markings** — the kind you
-see in pro analysis apps:
+see in pro analysis apps. You upload raw match footage; players and the ball are
+detected and tracked automatically and the markings are drawn on top. No app
+menus, no manual frame-by-frame drawing.
 
-- 🔴 **Ground rings / ovals** under every detected player
-- 🔦 **Spotlight beam** that follows the key player
-- ➡️ **Motion arrows** showing that player's movement direction
+## Two modes
 
-You upload raw match footage; players are detected and tracked automatically and
-the markings are drawn on top. No app menus, no manual frame-by-frame drawing.
+### `ball-follow` (default) — follow the ball
+
+Marks **only the player on the ball**, not everyone:
+
+- 🔦 spotlight + 🔴 ring on the **current ball carrier**
+- when the ball is passed, an ➡️ **arrow** from passer to receiver, and the mark
+  moves onto the **receiver**
+- follows the whole chain: player 1 → 2 → 3 …
+
+This keeps the video clean — one highlighted player at a time. It depends on the
+ball being detectable in your footage (see *Limits*).
+
+### `all-players` — ring everyone
+
+- 🔴 ground ring under **every** on-pitch player
+- 🔦 spotlight on the key player + ➡️ motion arrow
+
+Use `--mode all-players` for this.
 
 ## How it works
 
-1. **Detect + track** players every frame with YOLOv8 + ByteTrack (persistent
-   IDs, so markings stick to the same player as they move).
-2. **Filter** to players on the green pitch (spectators / dugout are ignored).
-3. **Draw** a ground ellipse under each player; pick the *key player* (nearest
-   the ball, else the most central near-camera player) and give them a spotlight
-   plus a motion arrow derived from their recent movement.
-4. **Mux** the original audio back and export a browser-friendly MP4.
+**ball-follow** runs two offline passes so it can "see the future":
+
+1. **Analyse** — detect + track players and the ball every frame (YOLOv8 +
+   ByteTrack), storing lightweight per-frame data.
+2. Build a smoothed **ball trajectory** (gaps interpolated), a **possession
+   timeline** (who holds the ball) and the **pass events** between segments.
+3. **Render** — draw the mark on the current carrier and a pass arrow across
+   each pass window; mux the original audio back; export H.264 MP4.
+
+Spectators / dugout are ignored via a green-pitch mask.
 
 ## Install
 
@@ -41,16 +60,16 @@ Upload a clip, tick the markings you want, click **Mark my video**.
 ## Use it — command line
 
 ```bash
-# Auto-mark everything
+# Follow the ball: mark only the carrier + passes (default)
 python -m tactical_marker.cli match.mp4 -o marked.mp4
 
-# Rings only, coloured by team, first 15 seconds
+# Better ball/player detection (slower) — recommended for wide footage
 python -m tactical_marker.cli match.mp4 -o marked.mp4 \
-    --no-spotlight --no-arrows --color-by-team --max-seconds 15
+    --model yolov8s.pt --imgsz 1280
 
-# Force which player gets the spotlight (by track id), better detection
+# Ring every player instead, coloured by team, first 15 seconds
 python -m tactical_marker.cli match.mp4 -o marked.mp4 \
-    --spotlight-id 7 --model yolov8s.pt --imgsz 1280
+    --mode all-players --color-by-team --max-seconds 15
 ```
 
 Run `python -m tactical_marker.cli -h` for all options.
@@ -84,13 +103,16 @@ Colours, ellipse size, spotlight/arrow look, etc. live in
 
 ## Limits / honest notes
 
-- Detection is a **nano** model by default for speed; on wide broadcast shots
-  some distant players are missed — use `yolov8s/m` + a larger `--imgsz` for
-  better coverage (slower).
-- "Key player" selection is heuristic. `sports ball` detection is unreliable at
-  small sizes, so the spotlight falls back to the central near-camera player;
-  use `--spotlight-id` to lock onto exactly who you want.
-- Arrows show **actual tracked movement**, not tactical intent. Bespoke
-  pass/run arrows between chosen points are a natural next feature.
+- **ball-follow depends entirely on ball detection.** On zoomed / broadcast
+  footage the ball is detected well enough (gaps are interpolated); on wide,
+  low-res or amateur single-camera clips the ball may be too small and the mode
+  can't follow it. Use `--model yolov8s.pt --imgsz 1280` to improve it, or fall
+  back to `--mode all-players`. If the ball is never seen, ball-follow errors
+  out with a clear message rather than guessing.
+- Possession and pass detection are heuristic (nearest player to the ball, with
+  smoothing). Quick one-twos or crowded areas can produce a wrong carrier for a
+  few frames.
+- Detection is a **nano** model by default for speed; larger models
+  (`yolov8s/m`) + a bigger `--imgsz` detect more, but run slower.
 - Processing is CPU-bound (a few seconds per second of footage). A GPU, if
   present, is used automatically by ultralytics.

@@ -25,6 +25,10 @@ def parse_args(argv=None):
     p.add_argument("input", help="input football video")
     p.add_argument("-o", "--output", default="marked.mp4")
 
+    p.add_argument("--mode", choices=["ball-follow", "all-players"],
+                   default="ball-follow",
+                   help="ball-follow: mark only the ball carrier + passes "
+                        "(default); all-players: ring every player")
     p.add_argument("--no-rings", action="store_true", help="don't draw ground rings")
     p.add_argument("--no-spotlight", action="store_true", help="don't draw the spotlight")
     p.add_argument("--no-arrows", action="store_true", help="don't draw motion arrows")
@@ -48,7 +52,7 @@ def parse_args(argv=None):
 def main(argv=None) -> int:
     a = parse_args(argv)
     cfg = MarkerConfig(
-        input_path=a.input, output_path=a.output,
+        input_path=a.input, output_path=a.output, mode=a.mode,
         rings=not a.no_rings, spotlight=not a.no_spotlight,
         arrows=not a.no_arrows, color_by_team=a.color_by_team,
         only_on_pitch=not a.include_crowd, key_track_id=a.spotlight_id,
