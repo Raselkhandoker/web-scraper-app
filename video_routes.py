@@ -27,7 +27,32 @@ import cv2
 from flask import Blueprint, request, jsonify, send_file, current_app
 
 from models import db, VideoJob
-from video_animator import VideoAnimator, STYLES, parse_cut_segments
+from video_animator import (
+    VideoAnimator, STYLES, REMOVE_METHODS, parse_cut_segments,
+)
+
+
+def _parse_regions(raw):
+    """Parse the remove_regions JSON into a list of (x,y,w,h) fraction tuples."""
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except (ValueError, TypeError):
+        return []
+    regions = []
+    for item in data if isinstance(data, list) else []:
+        try:
+            x, y, w, h = (float(item[0]), float(item[1]),
+                          float(item[2]), float(item[3]))
+        except (TypeError, ValueError, IndexError, KeyError):
+            continue
+        # clamp to 0..1 and drop empty boxes
+        x, y = max(0.0, min(1.0, x)), max(0.0, min(1.0, y))
+        w, h = max(0.0, min(1.0, w)), max(0.0, min(1.0, h))
+        if w > 0.001 and h > 0.001:
+            regions.append((x, y, w, h))
+    return regions
 
 logger = logging.getLogger(__name__)
 video_bp = Blueprint('video', __name__, url_prefix='/api/video')
@@ -100,6 +125,7 @@ def run_video_job(app, job_id: int):
             output_path = os.path.join(_outputs_dir(), out_name)
             audio_mode = job.audio_mode or 'keep'
             cuts = parse_cut_segments(job.cut_segments)
+            regions = _parse_regions(job.remove_regions)
 
             if job.engine == 'ai':
                 stats = _run_ai_engine(job, input_path, output_path,
@@ -108,7 +134,7 @@ def run_video_job(app, job_id: int):
             else:
                 stats = _run_local_engine(job, input_path, output_path,
                                           audio_mode, audio_upload, cuts,
-                                          set_progress)
+                                          regions, set_progress)
 
             job = VideoJob.query.get(job_id)
             job.output_filename = out_name
@@ -131,13 +157,14 @@ def run_video_job(app, job_id: int):
 
 
 def _run_local_engine(job, input_path, output_path, audio_mode, audio_upload,
-                      cuts, set_progress):
+                      cuts, regions, set_progress):
     animator = VideoAnimator()
     # For AI music we render silent first, then generate + mux music.
     eff_mode = 'mute' if audio_mode == 'ai_music' else audio_mode
     stats = animator.process(
         input_path, output_path, style=job.style, cut_segments=cuts,
         audio_mode=eff_mode, replacement_audio=audio_upload,
+        remove_regions=regions, remove_method=(job.remove_method or 'blur'),
         progress_cb=set_progress,
     )
     if audio_mode == 'ai_music':
@@ -228,6 +255,11 @@ def create_video_job():
     if audio_mode not in AUDIO_MODES:
         return jsonify({'error': f'Unknown audio mode "{audio_mode}"'}), 400
 
+    remove_method = request.form.get('remove_method', 'blur')
+    if remove_method not in REMOVE_METHODS:
+        return jsonify({'error': f'Unknown remove method "{remove_method}"'}), 400
+    remove_regions_raw = request.form.get('remove_regions', '').strip()
+
     # Save the video upload.
     stored_name = f"{uuid.uuid4().hex}{ext}"
     f.save(os.path.join(_uploads_dir(), stored_name))
@@ -257,6 +289,8 @@ def create_video_job():
         audio_mode=audio_mode,
         audio_filename=audio_stored,
         music_prompt=request.form.get('music_prompt', '').strip(),
+        remove_regions=remove_regions_raw,
+        remove_method=remove_method,
         status='pending',
         progress=0,
     )

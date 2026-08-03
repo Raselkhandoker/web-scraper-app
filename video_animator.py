@@ -194,6 +194,57 @@ def frame_hold_for(style: str) -> int:
 
 
 # --------------------------------------------------------------------------- #
+#  Region removal (hide logos / text / watermarks)
+# --------------------------------------------------------------------------- #
+#
+# Regions are given as fractions of the frame: (x, y, w, h) each in 0..1, so
+# they survive any resize. Each region is covered on every frame using the
+# chosen method. This hides logos and burned-in text rather than perfectly
+# reconstructing what was behind them (that needs AI video inpainting).
+
+REMOVE_METHODS = ("blur", "pixelate", "black", "inpaint")
+
+
+def apply_removals(frame: np.ndarray,
+                   regions: List[Tuple[float, float, float, float]],
+                   method: str = "blur") -> np.ndarray:
+    if not regions:
+        return frame
+    h, w = frame.shape[:2]
+    inpaint_mask = None
+    for (rx, ry, rw, rh) in regions:
+        x1 = max(0, int(round(rx * w)))
+        y1 = max(0, int(round(ry * h)))
+        x2 = min(w, int(round((rx + rw) * w)))
+        y2 = min(h, int(round((ry + rh) * h)))
+        if x2 <= x1 or y2 <= y1:
+            continue
+
+        if method == "inpaint":
+            if inpaint_mask is None:
+                inpaint_mask = np.zeros((h, w), dtype=np.uint8)
+            inpaint_mask[y1:y2, x1:x2] = 255
+            continue
+
+        roi = frame[y1:y2, x1:x2]
+        if method == "black":
+            frame[y1:y2, x1:x2] = 0
+        elif method == "pixelate":
+            small = cv2.resize(roi, (max(1, (x2 - x1) // 12),
+                                     max(1, (y2 - y1) // 12)),
+                               interpolation=cv2.INTER_LINEAR)
+            frame[y1:y2, x1:x2] = cv2.resize(
+                small, (x2 - x1, y2 - y1), interpolation=cv2.INTER_NEAREST)
+        else:  # blur (default)
+            sigma = max(8.0, (x2 - x1) / 10.0)
+            frame[y1:y2, x1:x2] = cv2.GaussianBlur(roi, (0, 0), sigmaX=sigma)
+
+    if inpaint_mask is not None:
+        frame = cv2.inpaint(frame, inpaint_mask, 3, cv2.INPAINT_TELEA)
+    return frame
+
+
+# --------------------------------------------------------------------------- #
 #  Trim helpers
 # --------------------------------------------------------------------------- #
 
@@ -263,11 +314,14 @@ class VideoAnimator:
         cut_segments: Optional[List[Tuple[float, float]]] = None,
         audio_mode: str = "keep",           # keep | mute | replace
         replacement_audio: Optional[str] = None,  # path, for audio_mode=replace
+        remove_regions: Optional[List[Tuple[float, float, float, float]]] = None,
+        remove_method: str = "blur",
         max_width: int = 960,
         progress_cb: ProgressCB = None,
     ) -> dict:
         """Run the local (OpenCV) pipeline. Returns a dict of stats."""
         cut_segments = cut_segments or []
+        remove_regions = remove_regions or []
         hold = frame_hold_for(style)
 
         cap = cv2.VideoCapture(input_path)
@@ -315,6 +369,10 @@ class VideoAnimator:
                 if scale != 1.0:
                     frame = cv2.resize(frame, (out_w, out_h),
                                        interpolation=cv2.INTER_AREA)
+
+                # Hide logos / text before stylising.
+                if remove_regions:
+                    frame = apply_removals(frame, remove_regions, remove_method)
 
                 # Frame holding for stop-motion / flipbook styles.
                 if hold > 1 and last_styled is not None and kept_index % hold != 0:

@@ -42,8 +42,14 @@ top of the main dashboard).
 1. Upload a video (mp4, mov, avi, mkv, webm…).
 2. Optionally list **cut segments** in seconds to remove, e.g. `0-3, 10-12.5`.
    Use the built-in preview player to find timestamps.
-3. Pick a **style** and an **engine**, then create the animation and download
-   the result. Original audio is kept and trimmed to match.
+3. Optionally **remove logos / text**: tick "Draw boxes", drag rectangles on
+   the preview over any logo or burned-in text, and pick how to cover them
+   (blur / pixelate / black box / inpaint). The boxes are applied to every
+   frame before styling. This *hides* the marked areas rather than perfectly
+   reconstructing what was behind them (true erasure needs AI video
+   inpainting). Region removal runs on the `local` engine.
+4. Pick a **style** and an **engine**, then create the animation and download
+   the result.
 
 **Styles** (local engine = stylised *approximations* of these techniques):
 `cartoon`, `anime`, `2d`, `traditional`, `flipbook`, `stop_motion`,

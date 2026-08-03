@@ -94,6 +94,8 @@ class VideoJob(db.Model):
     audio_mode = db.Column(db.String(20), default='keep')  # keep, mute, replace, ai_music
     audio_filename = db.Column(db.String(512))             # uploaded replacement track
     music_prompt = db.Column(db.String(512), default='')   # optional AI music prompt
+    remove_regions = db.Column(db.Text, default='')        # JSON: [[x,y,w,h],...] fractions
+    remove_method = db.Column(db.String(20), default='blur')  # blur, pixelate, black, inpaint
     progress = db.Column(db.Integer, default=0)            # 0..100
     stats = db.Column(db.Text)                             # JSON string of result stats
     error_message = db.Column(db.Text)
@@ -113,6 +115,8 @@ class VideoJob(db.Model):
             'keep_audio': self.keep_audio,
             'audio_mode': self.audio_mode,
             'music_prompt': self.music_prompt,
+            'remove_regions': self.remove_regions,
+            'remove_method': self.remove_method,
             'progress': self.progress,
             'stats': self.stats,
             'error_message': self.error_message,
