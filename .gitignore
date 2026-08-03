@@ -47,3 +47,8 @@ build/
 *.mp4
 *.mov
 promo_out.mp4
+
+# Tactical marker — model weights & tracker artifacts (auto-downloaded)
+*.pt
+runs/
+marked.mp4

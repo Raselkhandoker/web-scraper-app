@@ -47,6 +47,22 @@ python -m video_promo.cli clip.mp4 -o promo.mp4 --caption "YOUR TEXT" --brand "M
 
 See [`video_promo/README.md`](video_promo/README.md) for full usage.
 
+## ⚽ Tactical Marker
+
+Automatically annotate a football clip with tactical markings — ground rings
+under detected players, a spotlight following the key player, and motion arrows
+— the way pro analysis apps do. Players are detected and tracked automatically
+(YOLOv8 + ByteTrack); you just upload raw match footage.
+
+```bash
+pip install -r tactical_marker/requirements.txt flask
+python -m tactical_marker.webapp     # web upload page at http://localhost:5002
+# or the CLI:
+python -m tactical_marker.cli match.mp4 -o marked.mp4
+```
+
+See [`tactical_marker/README.md`](tactical_marker/README.md) for full usage.
+
 ## 🚀 Quick Start
 
 ### Prerequisites

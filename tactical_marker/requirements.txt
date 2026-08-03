@@ -1,0 +1,10 @@
+# Tactical marker dependencies
+ultralytics>=8.3        # YOLO player detection + ByteTrack tracking (pulls in torch)
+opencv-python-headless  # frame drawing + video IO
+imageio-ffmpeg>=0.4     # bundled ffmpeg for audio mux (skip if ffmpeg on PATH)
+lap>=0.5                # required by the ByteTrack tracker
+
+# Optional:
+#   flask   -> only for the web upload UI (webapp.py)
+#
+# First run auto-downloads the detection weights (yolov8n.pt, ~6 MB).
