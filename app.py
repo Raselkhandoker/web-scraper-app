@@ -54,12 +54,12 @@ def create_app():
     # Static files
     @app.route('/')
     def index():
-        with open('static/index.html', 'r') as f:
+        with open('static/index.html', 'r', encoding='utf-8') as f:
             return f.read()
 
     @app.route('/animator')
     def animator():
-        with open('static/animator.html', 'r') as f:
+        with open('static/animator.html', 'r', encoding='utf-8') as f:
             return f.read()
 
     @app.errorhandler(413)
