@@ -101,6 +101,27 @@ GET    /api/video/jobs/<id>/download  # download the animation
 DELETE /api/video/jobs/<id>           # delete job + files
 ```
 
+### Windows one-click launch
+
+After the first setup (below), you can just **double-click `start.bat`** to
+launch the app and open the tool in your browser — no typing needed.
+
+### Verify it works
+
+Run the offline self-test (no internet / API token required):
+
+```bash
+py -3.11 smoke_test.py      # Windows
+python3 smoke_test.py       # Mac / Linux
+```
+
+It renders every style, trims, keeps audio, and removes a region. A final
+`ALL CHECKS PASSED` means the engine is healthy.
+
+> **Updating:** the database upgrades itself on startup (new columns are
+> added automatically), so you never need to delete your database after
+> pulling an update.
+
 ## 🚀 Quick Start
 
 ### Prerequisites
