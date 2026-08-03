@@ -31,6 +31,49 @@ A full-stack web scraping application with an interactive dashboard. Extract dat
 - SQLite database for job and data storage
 - Thread-safe job execution
 
+## 🎬 Video → Animation
+
+Turn a normal video into a cartoon/animated version, and trim out the parts
+you don't want. Open **`/animator`** in your browser (there's a link at the
+top of the main dashboard).
+
+**How it works**
+
+1. Upload a video (mp4, mov, avi, mkv, webm…).
+2. Optionally list **cut segments** in seconds to remove, e.g. `0-3, 10-12.5`.
+   Use the built-in preview player to find timestamps.
+3. Pick a **style** and an **engine**, then create the animation and download
+   the result. Original audio is kept and trimmed to match.
+
+**Styles:** `cartoon` (bold outlines), `anime` (flat cel-shaded), `sketch`
+(pencil), `paint` (painterly).
+
+**Two engines**
+
+| Engine  | Cost | Needs | Quality |
+|---------|------|-------|---------|
+| `local` | Free, offline (OpenCV) | nothing | stylised cartoon filter |
+| `ai`    | Paid | `REPLICATE_API_TOKEN` | high-quality AI animation |
+
+The `local` engine is the default and works out of the box — no API key. The
+`ai` engine sends the video to [Replicate](https://replicate.com); set
+`REPLICATE_API_TOKEN` (and optionally `REPLICATE_MODEL`) in your `.env`.
+
+No system `ffmpeg` install is required — the bundled `imageio-ffmpeg` binary
+is used for encoding and audio muxing.
+
+**Video API endpoints**
+
+```bash
+GET    /api/video/styles              # list styles + engines
+POST   /api/video/jobs                # multipart: video, job_name, engine, style, cut_segments, keep_audio
+GET    /api/video/jobs                # list jobs
+GET    /api/video/jobs/<id>           # poll status/progress
+GET    /api/video/jobs/<id>/source    # original video (for preview)
+GET    /api/video/jobs/<id>/download  # download the animation
+DELETE /api/video/jobs/<id>           # delete job + files
+```
+
 ## 🚀 Quick Start
 
 ### Prerequisites
@@ -155,14 +198,19 @@ PORT=5000
 ```
 web-scraper-app/
 ├── app.py              # Flask application setup
-├── models.py           # Database models
+├── models.py           # Database models (scraping + video jobs)
 ├── scraper.py          # Core scraping engine
-├── routes.py           # API endpoints
+├── routes.py           # Scraper API endpoints
+├── video_animator.py   # Video → animation engine (OpenCV, trimming, audio)
+├── ai_backends.py      # Optional AI engine (Replicate)
+├── video_routes.py     # Video API endpoints
 ├── requirements.txt    # Python dependencies
 ├── .env.example        # Environment template
 ├── .gitignore          # Git ignore rules
 ├── static/
-│   └── index.html      # Dashboard UI
+│   ├── index.html      # Scraper dashboard UI
+│   └── animator.html   # Video → animation UI
+├── media/              # Uploaded videos + rendered animations (auto-created)
 ├── scraper.db          # SQLite database (auto-created)
 └── README.md           # This file
 ```
@@ -277,6 +325,9 @@ self.timeout = 20  # seconds
 - **SQLAlchemy**: ORM
 - **Pandas**: Data processing
 - **APScheduler**: Job scheduling
+- **OpenCV** (`opencv-python-headless`): Frame-by-frame video stylisation
+- **imageio / imageio-ffmpeg**: Video encoding + audio muxing (bundled ffmpeg)
+- **Pillow / NumPy**: Image processing
 
 ## 🤝 Contributing
 

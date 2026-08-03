@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video → Animation</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh; padding: 20px;
+        }
+        .container { max-width: 1100px; margin: 0 auto; }
+        header { text-align: center; color: #fff; margin-bottom: 24px; }
+        header h1 { font-size: 2.3em; margin-bottom: 8px; }
+        header p { opacity: .9; }
+        header a { color: #fff; font-size: .95em; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+        @media (max-width: 800px) { .grid { grid-template-columns: 1fr; } }
+        .card {
+            background: #fff; border-radius: 14px; padding: 22px;
+            box-shadow: 0 10px 30px rgba(0,0,0,.15); margin-bottom: 20px;
+        }
+        h2 { font-size: 1.2em; margin-bottom: 14px; color: #333; }
+        label { display: block; font-weight: 600; margin: 12px 0 6px; color: #444; font-size: .92em; }
+        input[type=text], select, input[type=file] {
+            width: 100%; padding: 10px; border: 1px solid #ddd;
+            border-radius: 8px; font-size: .95em;
+        }
+        .hint { font-size: .8em; color: #888; margin-top: 4px; }
+        .row { display: flex; gap: 10px; align-items: center; }
+        .row input[type=checkbox] { width: auto; }
+        button {
+            width: 100%; padding: 12px; margin-top: 18px; border: none;
+            border-radius: 8px; font-size: 1em; font-weight: 600; color: #fff;
+            background: linear-gradient(135deg, #667eea, #764ba2); cursor: pointer;
+        }
+        button:disabled { opacity: .5; cursor: not-allowed; }
+        video { width: 100%; border-radius: 8px; background: #000; margin-top: 8px; }
+        .progress-wrap { background: #eee; border-radius: 20px; height: 22px; overflow: hidden; margin-top: 10px; display: none; }
+        .progress-bar { height: 100%; width: 0; background: linear-gradient(135deg,#667eea,#764ba2); color:#fff; font-size:.75em; text-align:center; line-height:22px; transition: width .3s; }
+        .status { margin-top: 12px; font-size: .9em; }
+        .badge { display:inline-block; padding:3px 10px; border-radius:12px; font-size:.75em; font-weight:600; }
+        .b-pending{background:#fff3cd;color:#856404}
+        .b-running{background:#cce5ff;color:#004085}
+        .b-completed{background:#d4edda;color:#155724}
+        .b-failed{background:#f8d7da;color:#721c24}
+        .job { border:1px solid #eee; border-radius:10px; padding:12px; margin-bottom:10px; }
+        .job-head { display:flex; justify-content:space-between; align-items:center; }
+        .job small { color:#888; }
+        .actions a, .actions button {
+            display:inline-block; width:auto; margin:6px 6px 0 0; padding:6px 12px;
+            font-size:.82em; text-decoration:none; border-radius:6px;
+        }
+        .actions a { background:#28a745; color:#fff; }
+        .actions .del { background:#dc3545; }
+        .err { color:#721c24; font-size:.85em; margin-top:6px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <header>
+        <h1>🎬 Video → Animation</h1>
+        <p>Upload a video, trim the parts you don't need, and get it back as an animation.</p>
+        <p><a href="/">← Back to the scraper</a></p>
+    </header>
+
+    <div class="grid">
+        <!-- Left: form -->
+        <div class="card">
+            <h2>1. Upload &amp; options</h2>
+            <label>Video file</label>
+            <input type="file" id="file" accept="video/*">
+            <div class="hint">mp4, mov, avi, mkv, webm… (max 200 MB)</div>
+
+            <video id="preview" controls style="display:none"></video>
+            <div class="hint" id="dur-hint" style="display:none"></div>
+
+            <label>Job name</label>
+            <input type="text" id="job_name" placeholder="My animation">
+
+            <label>Engine</label>
+            <select id="engine">
+                <option value="local">Local cartoon filter — free, offline</option>
+                <option value="ai">AI service (Replicate) — needs API token</option>
+            </select>
+
+            <label>Style</label>
+            <select id="style"></select>
+
+            <label>Cut segments to remove (seconds)</label>
+            <input type="text" id="cut" placeholder="e.g. 0-3, 10-12.5">
+            <div class="hint">Play the preview to find timestamps. Leave empty to keep everything. (Local engine only.)</div>
+
+            <label class="row" style="margin-top:14px;">
+                <input type="checkbox" id="keep_audio" checked>
+                <span>Keep original audio</span>
+            </label>
+
+            <button id="go">Create animation</button>
+            <div class="err" id="form-err"></div>
+        </div>
+
+        <!-- Right: current job + list -->
+        <div class="card">
+            <h2>2. Result</h2>
+            <div id="current" class="status">Upload a video and press <b>Create animation</b>.</div>
+            <div class="progress-wrap" id="pwrap"><div class="progress-bar" id="pbar">0%</div></div>
+            <video id="result" controls style="display:none"></video>
+
+            <h2 style="margin-top:24px;">Recent jobs</h2>
+            <div id="jobs"></div>
+        </div>
+    </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+let pollTimer = null;
+
+// Load styles
+fetch('/api/video/styles').then(r => r.json()).then(d => {
+    $('style').innerHTML = d.styles
+        .map(s => `<option value="${s.id}">${s.id} — ${s.description}</option>`)
+        .join('');
+});
+
+// Preview + duration
+$('file').addEventListener('change', e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    const url = URL.createObjectURL(f);
+    const v = $('preview');
+    v.src = url; v.style.display = 'block';
+    v.onloadedmetadata = () => {
+        $('dur-hint').style.display = 'block';
+        $('dur-hint').textContent = `Duration: ${v.duration.toFixed(1)}s`;
+    };
+    if (!$('job_name').value) $('job_name').value = f.name;
+});
+
+$('go').addEventListener('click', () => {
+    $('form-err').textContent = '';
+    const f = $('file').files[0];
+    if (!f) { $('form-err').textContent = 'Please choose a video file first.'; return; }
+
+    const fd = new FormData();
+    fd.append('video', f);
+    fd.append('job_name', $('job_name').value || f.name);
+    fd.append('engine', $('engine').value);
+    fd.append('style', $('style').value);
+    fd.append('cut_segments', $('cut').value);
+    fd.append('keep_audio', $('keep_audio').checked ? 'true' : 'false');
+
+    $('go').disabled = true;
+    $('current').textContent = 'Uploading…';
+    $('result').style.display = 'none';
+
+    fetch('/api/video/jobs', { method: 'POST', body: fd })
+        .then(r => r.json().then(j => ({ ok: r.ok, j })))
+        .then(({ ok, j }) => {
+            $('go').disabled = false;
+            if (!ok) { $('form-err').textContent = j.error || 'Failed to start job'; $('current').textContent=''; return; }
+            trackJob(j.id);
+            loadJobs();
+        })
+        .catch(err => { $('go').disabled = false; $('form-err').textContent = err.message; });
+});
+
+function trackJob(id) {
+    if (pollTimer) clearInterval(pollTimer);
+    $('pwrap').style.display = 'block';
+    const tick = () => fetch(`/api/video/jobs/${id}`).then(r => r.json()).then(j => {
+        setBar(j.progress || 0);
+        $('current').innerHTML = `Job #${j.id} — <span class="badge b-${j.status}">${j.status}</span>`;
+        if (j.status === 'completed') {
+            clearInterval(pollTimer);
+            const r = $('result');
+            r.src = `/api/video/jobs/${id}/download?t=${Date.now()}`;
+            r.style.display = 'block';
+            $('current').innerHTML += ' — done! 🎉';
+            loadJobs();
+        } else if (j.status === 'failed') {
+            clearInterval(pollTimer);
+            $('current').innerHTML += `<div class="err">${j.error_message || 'Job failed'}</div>`;
+            loadJobs();
+        }
+    });
+    tick();
+    pollTimer = setInterval(tick, 1500);
+}
+
+function setBar(p) { $('pbar').style.width = p + '%'; $('pbar').textContent = p + '%'; }
+
+function loadJobs() {
+    fetch('/api/video/jobs').then(r => r.json()).then(jobs => {
+        $('jobs').innerHTML = jobs.slice(0, 12).map(j => `
+            <div class="job">
+                <div class="job-head">
+                    <b>${escapeHtml(j.job_name)}</b>
+                    <span class="badge b-${j.status}">${j.status}</span>
+                </div>
+                <small>${j.engine} · ${j.style} · ${new Date(j.created_at).toLocaleString()}</small>
+                ${j.status === 'failed' ? `<div class="err">${escapeHtml(j.error_message||'')}</div>` : ''}
+                <div class="actions">
+                    ${j.has_output ? `<a href="/api/video/jobs/${j.id}/download">⬇ Download</a>` : ''}
+                    <button class="del" onclick="delJob(${j.id})">Delete</button>
+                </div>
+            </div>`).join('') || '<p class="hint">No jobs yet.</p>';
+    });
+}
+
+function delJob(id) {
+    if (!confirm('Delete this job and its files?')) return;
+    fetch(`/api/video/jobs/${id}`, { method: 'DELETE' }).then(() => loadJobs());
+}
+
+function escapeHtml(s) {
+    return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+}
+
+loadJobs();
+</script>
+</body>
+</html>
