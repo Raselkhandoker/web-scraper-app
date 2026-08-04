@@ -1,0 +1,4 @@
+# Core auto-editor dependencies (separate from the Flask app's requirements.txt)
+faster-whisper>=1.0.0     # speech-to-text with word timestamps
+imageio-ffmpeg>=0.5.0     # bundled ffmpeg fallback if none on PATH
+anthropic>=0.40.0         # optional: Claude highlight selection (needs ANTHROPIC_API_KEY)
