@@ -58,7 +58,7 @@ STYLE_CONFIG = {
     # id            (description,                                               hold)
     "cartoon":      ("Smooth colours with bold outlines (classic cartoon)",     1),
     "anime":        ("Flat, cel-shaded anime feel",                             1),
-    "2d":           ("Flat 2D animation - clean cel shading",                   1),
+    "2d":           ("Clean flat 2D cartoon - bold outlines, vivid flat colour", 1),
     "traditional":  ("Traditional hand-drawn cel look (soft, warm)",            1),
     "flipbook":     ("Pencil flipbook - sketchy lines, hand-flipped timing",    3),
     "stop_motion":  ("Stop-motion - real texture with choppy 'on threes' timing", 3),
@@ -113,8 +113,39 @@ def _cel(frame: np.ndarray, n_levels: int, block: int, c: int,
     return cv2.bitwise_and(color, edges)
 
 
+def _clean_2d(frame: np.ndarray) -> np.ndarray:
+    """A clean, flat 2D-cartoon look: smooth flat colour fields, punchy
+    saturation, and bold clean black outlines (less speckle than the
+    adaptive-threshold styles)."""
+    # 1. Flatten into clean colour regions (edge-preserving, keeps shapes).
+    smooth = cv2.edgePreservingFilter(frame, flags=cv2.RECURS_FILTER,
+                                      sigma_s=60, sigma_r=0.4)
+    smooth = cv2.bilateralFilter(smooth, 9, 120, 120)
+
+    # 2. Quantise to a small palette and boost saturation for a cartoon pop.
+    quant = _quantize(smooth, 8)
+    hsv = cv2.cvtColor(quant, cv2.COLOR_BGR2HSV).astype(np.int16)
+    hsv[..., 1] = np.clip(hsv[..., 1] * 1.30, 0, 255)   # saturation
+    hsv[..., 2] = np.clip(hsv[..., 2] * 1.05, 0, 255)   # brightness
+    quant = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    # 3. Bold, clean outlines via Canny on the smoothed image, thickened.
+    gray = cv2.cvtColor(smooth, cv2.COLOR_BGR2GRAY)
+    gray = cv2.medianBlur(gray, 7)
+    edges = cv2.Canny(gray, 60, 150)
+    edges = cv2.dilate(edges, np.ones((2, 2), np.uint8), iterations=1)
+    # Drop tiny speckles so the linework stays clean.
+    edges = cv2.medianBlur(edges, 3)
+    line_mask = cv2.cvtColor(255 - edges, cv2.COLOR_GRAY2BGR)
+
+    return cv2.bitwise_and(quant, line_mask)
+
+
 def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
     """Apply a stylisation to a single BGR frame and return a BGR frame."""
+
+    if style == "2d":
+        return _clean_2d(frame)
 
     if style == "sketch":
         return cv2.cvtColor(_pencil_sketch(frame), cv2.COLOR_GRAY2BGR)
@@ -181,9 +212,8 @@ def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
     if style == "anime":
         return _cel(frame, n_levels=6, block=9, c=3)
 
-    if style in ("2d", "traditional"):
-        soft = 3 if style == "traditional" else 2
-        return _cel(frame, n_levels=8, block=9, c=2, smooth_passes=soft)
+    if style == "traditional":
+        return _cel(frame, n_levels=8, block=9, c=2, smooth_passes=3)
 
     # default: cartoon
     return _cel(frame, n_levels=9, block=9, c=2)
