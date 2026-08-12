@@ -10,3 +10,4 @@ lxml==4.9.3
 pandas==2.0.3
 Werkzeug==2.3.7
 APScheduler==3.10.4
+gunicorn==21.2.0

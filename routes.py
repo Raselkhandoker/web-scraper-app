@@ -1,4 +1,4 @@
-from flask import Blueprint, request, jsonify, send_file
+from flask import Blueprint, request, jsonify, send_file, current_app
 from datetime import datetime
 import csv
 import json
@@ -11,13 +11,19 @@ import threading
 logger = logging.getLogger(__name__)
 api_bp = Blueprint('api', __name__, url_prefix='/api')
 
-def run_scraping_job(job_id):
+def run_scraping_job(job_id, app):
     """Run scraping job in background"""
+    # Background threads need an application context to use the database.
+    with app.app_context():
+        _run_scraping_job(job_id)
+
+
+def _run_scraping_job(job_id):
     try:
         job = ScrapingJob.query.get(job_id)
         if not job:
             return
-        
+
         job.status = 'running'
         job.started_at = datetime.utcnow()
         db.session.commit()
@@ -52,7 +58,7 @@ def run_scraping_job(job_id):
                     data_type=result['type'],
                     content=result['content'][:5000],  # Limit content length
                     url=result.get('url'),
-                    metadata=result.get('metadata')
+                    product_metadata=result.get('metadata')
                 )
                 db.session.add(scraped_data)
             
@@ -99,8 +105,9 @@ def create_job():
         db.session.add(job)
         db.session.commit()
         
-        # Run scraping in background thread
-        thread = threading.Thread(target=run_scraping_job, args=(job.id,))
+        # Run scraping in background thread (pass the real app for context)
+        app = current_app._get_current_object()
+        thread = threading.Thread(target=run_scraping_job, args=(job.id, app))
         thread.daemon = True
         thread.start()
         
@@ -181,7 +188,7 @@ def export_csv(job_id):
         writer.writerow(['Type', 'Content', 'URL', 'Metadata', 'Created At'])
         
         for item in data:
-            writer.writerow([item.data_type, item.content, item.url, item.metadata or '', item.created_at])
+            writer.writerow([item.data_type, item.content, item.url, item.product_metadata or '', item.created_at])
         
         output.seek(0)
         return send_file(

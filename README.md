@@ -69,6 +69,26 @@ A full-stack web scraping application with an interactive dashboard. Extract dat
 6. **Open your browser**
    Navigate to `http://localhost:5000`
 
+## ☁️ Deploy to the Cloud (runs 24/7, even when your laptop is off)
+
+This repo is ready to deploy to [Render](https://render.com) with zero code changes:
+
+1. Push this repo to GitHub.
+2. On Render: **New → Blueprint**, connect this repository.
+3. Render reads `render.yaml` automatically. Click **Apply**.
+4. Open the URL Render gives you (e.g. `https://web-scraper-app.onrender.com`).
+
+The app then runs on Render's servers — accessible from any phone or computer,
+no laptop required. A production server (`gunicorn`) is used via `render.yaml`
+and `Procfile`.
+
+> Step-by-step guide in Bengali: see **[DEPLOY_BANGLA.md](DEPLOY_BANGLA.md)**.
+>
+> Notes on Render's free plan: the app sleeps after ~15 min of inactivity
+> (wakes on the next visit), and SQLite data is not persistent across restarts —
+> download important data as CSV/JSON. A free managed database can be added later
+> to make storage permanent.
+
 ## 📖 Usage
 
 ### Using the Dashboard
