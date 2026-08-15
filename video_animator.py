@@ -140,22 +140,21 @@ def _clean_2d(frame: np.ndarray) -> np.ndarray:
     """A clean, flat 2D-cartoon look: smooth flat colour fields, punchy
     saturation, and bold clean black outlines (less speckle than the
     adaptive-threshold styles)."""
-    # 1. Flatten strongly into clean colour regions (kills fine texture like
-    #    grass / crowd so they don't turn into noisy lines later).
-    smooth = cv2.edgePreservingFilter(frame, flags=cv2.RECURS_FILTER,
-                                      sigma_s=90, sigma_r=0.5)
-    smooth = cv2.bilateralFilter(smooth, 9, 150, 150)
+    # 1. Edge-preserving smoothing that flattens colour but KEEPS detail
+    #    (bilateral, not the smeary edgePreservingFilter) so players stay sharp.
+    smooth = cv2.bilateralFilter(frame, 9, 70, 70)
+    smooth = cv2.bilateralFilter(smooth, 9, 70, 70)
 
-    # 2. Quantise to a small palette and boost saturation for a cartoon pop.
-    quant = _quantize(smooth, 8)
+    # 2. Quantise to a palette (kept fairly large so faces/kit stay readable).
+    quant = _quantize(smooth, 10)
     hsv = cv2.cvtColor(quant, cv2.COLOR_BGR2HSV).astype(np.int16)
-    hsv[..., 1] = np.clip(hsv[..., 1] * 1.30, 0, 255)   # saturation
+    hsv[..., 1] = np.clip(hsv[..., 1] * 1.25, 0, 255)   # saturation
     hsv[..., 2] = np.clip(hsv[..., 2] * 1.05, 0, 255)   # brightness
     quant = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-    # 3. Bold outlines, but only the big shapes (speckle removed).
-    line_mask = _clean_line_mask(smooth, lo=80, hi=180,
-                                 min_frac=0.0006, thicken=1)
+    # 3. Bold outlines; drop only tiny grass speckle, keep small player edges.
+    line_mask = _clean_line_mask(smooth, lo=70, hi=160,
+                                 min_frac=0.00015, thicken=1)
     return cv2.bitwise_and(quant, line_mask)
 
 
@@ -163,22 +162,21 @@ def _paper_cutout(frame: np.ndarray) -> np.ndarray:
     """Paper cut-out / puppet look: big flat colour regions like pieces of
     coloured paper, with thin clean cut lines. Flatter and softer-edged than
     the 2d style."""
-    # 1. Flatten texture into paper-flat regions, but keep shape edges crisp
-    #    (bilateral pass preserves the boundaries of players / ball).
-    smooth = cv2.edgePreservingFilter(frame, flags=cv2.RECURS_FILTER,
-                                      sigma_s=70, sigma_r=0.45)
-    smooth = cv2.bilateralFilter(smooth, 7, 90, 90)
+    # 1. Flatten into paper-flat regions but keep detail (bilateral, not the
+    #    smeary edgePreservingFilter) so players don't melt into blobs.
+    smooth = cv2.bilateralFilter(frame, 7, 60, 60)
+    smooth = cv2.bilateralFilter(smooth, 7, 60, 60)
 
-    # 2. Reduce to a small palette (few flat colours = coloured paper).
-    quant = _quantize(smooth, 6)
+    # 2. Reduce to a small palette (flat coloured-paper feel).
+    quant = _quantize(smooth, 8)
     hsv = cv2.cvtColor(quant, cv2.COLOR_BGR2HSV).astype(np.int16)
     hsv[..., 1] = np.clip(hsv[..., 1] * 1.20, 0, 255)   # gentle saturation
     quant = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-    # 3. Crisp cut lines around the big pieces only (grass speckle removed,
-    #    player/ball outlines kept and thickened slightly).
+    # 3. Cut lines around pieces; drop only tiny grass speckle, keep small
+    #    player/ball outlines so they stay recognisable.
     line_mask = _clean_line_mask(smooth, lo=50, hi=130,
-                                 min_frac=0.0004, thicken=1)
+                                 min_frac=0.00015, thicken=1)
     return cv2.bitwise_and(quant, line_mask)
 
 
