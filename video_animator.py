@@ -163,20 +163,22 @@ def _paper_cutout(frame: np.ndarray) -> np.ndarray:
     """Paper cut-out / puppet look: big flat colour regions like pieces of
     coloured paper, with thin clean cut lines. Flatter and softer-edged than
     the 2d style."""
-    # 1. Very strong smoothing -> big paper-flat regions, no fine texture.
+    # 1. Flatten texture into paper-flat regions, but keep shape edges crisp
+    #    (bilateral pass preserves the boundaries of players / ball).
     smooth = cv2.edgePreservingFilter(frame, flags=cv2.RECURS_FILTER,
-                                      sigma_s=120, sigma_r=0.55)
-    smooth = cv2.medianBlur(smooth, 9)
+                                      sigma_s=70, sigma_r=0.45)
+    smooth = cv2.bilateralFilter(smooth, 7, 90, 90)
 
     # 2. Reduce to a small palette (few flat colours = coloured paper).
-    quant = _quantize(smooth, 5)
+    quant = _quantize(smooth, 6)
     hsv = cv2.cvtColor(quant, cv2.COLOR_BGR2HSV).astype(np.int16)
     hsv[..., 1] = np.clip(hsv[..., 1] * 1.20, 0, 255)   # gentle saturation
     quant = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-    # 3. Thin cut lines around the big pieces only (speckle removed).
-    line_mask = _clean_line_mask(smooth, lo=60, hi=140,
-                                 min_frac=0.0010, thicken=0)
+    # 3. Crisp cut lines around the big pieces only (grass speckle removed,
+    #    player/ball outlines kept and thickened slightly).
+    line_mask = _clean_line_mask(smooth, lo=50, hi=130,
+                                 min_frac=0.0004, thicken=1)
     return cv2.bitwise_and(quant, line_mask)
 
 
