@@ -113,14 +113,38 @@ def _cel(frame: np.ndarray, n_levels: int, block: int, c: int,
     return cv2.bitwise_and(color, edges)
 
 
+def _clean_line_mask(smooth: np.ndarray, lo: int, hi: int,
+                     min_frac: float = 0.0006, thicken: int = 1) -> np.ndarray:
+    """Return a BGR mask (black lines on white) that keeps only the *big*
+    outlines and drops small speckle -- so textured areas like grass and
+    crowds stay flat instead of filling with noisy lines."""
+    gray = cv2.cvtColor(smooth, cv2.COLOR_BGR2GRAY)
+    gray = cv2.medianBlur(gray, 7)
+    edges = cv2.Canny(gray, lo, hi)
+
+    # Remove small connected components (speckle).
+    n, labels, stats, _ = cv2.connectedComponentsWithStats(edges, 8)
+    if n > 1:
+        h, w = edges.shape
+        min_area = max(12, int(min_frac * h * w))
+        big = [i for i in range(1, n)
+               if stats[i, cv2.CC_STAT_AREA] >= min_area]
+        edges = np.isin(labels, big).astype(np.uint8) * 255
+
+    if thicken > 0:
+        edges = cv2.dilate(edges, np.ones((2, 2), np.uint8), iterations=thicken)
+    return cv2.cvtColor(255 - edges, cv2.COLOR_GRAY2BGR)
+
+
 def _clean_2d(frame: np.ndarray) -> np.ndarray:
     """A clean, flat 2D-cartoon look: smooth flat colour fields, punchy
     saturation, and bold clean black outlines (less speckle than the
     adaptive-threshold styles)."""
-    # 1. Flatten into clean colour regions (edge-preserving, keeps shapes).
+    # 1. Flatten strongly into clean colour regions (kills fine texture like
+    #    grass / crowd so they don't turn into noisy lines later).
     smooth = cv2.edgePreservingFilter(frame, flags=cv2.RECURS_FILTER,
-                                      sigma_s=60, sigma_r=0.4)
-    smooth = cv2.bilateralFilter(smooth, 9, 120, 120)
+                                      sigma_s=90, sigma_r=0.5)
+    smooth = cv2.bilateralFilter(smooth, 9, 150, 150)
 
     # 2. Quantise to a small palette and boost saturation for a cartoon pop.
     quant = _quantize(smooth, 8)
@@ -129,15 +153,9 @@ def _clean_2d(frame: np.ndarray) -> np.ndarray:
     hsv[..., 2] = np.clip(hsv[..., 2] * 1.05, 0, 255)   # brightness
     quant = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-    # 3. Bold, clean outlines via Canny on the smoothed image, thickened.
-    gray = cv2.cvtColor(smooth, cv2.COLOR_BGR2GRAY)
-    gray = cv2.medianBlur(gray, 7)
-    edges = cv2.Canny(gray, 60, 150)
-    edges = cv2.dilate(edges, np.ones((2, 2), np.uint8), iterations=1)
-    # Drop tiny speckles so the linework stays clean.
-    edges = cv2.medianBlur(edges, 3)
-    line_mask = cv2.cvtColor(255 - edges, cv2.COLOR_GRAY2BGR)
-
+    # 3. Bold outlines, but only the big shapes (speckle removed).
+    line_mask = _clean_line_mask(smooth, lo=80, hi=180,
+                                 min_frac=0.0006, thicken=1)
     return cv2.bitwise_and(quant, line_mask)
 
 
@@ -145,10 +163,10 @@ def _paper_cutout(frame: np.ndarray) -> np.ndarray:
     """Paper cut-out / puppet look: big flat colour regions like pieces of
     coloured paper, with thin clean cut lines. Flatter and softer-edged than
     the 2d style."""
-    # 1. Strong smoothing -> remove texture, leave paper-flat regions.
+    # 1. Very strong smoothing -> big paper-flat regions, no fine texture.
     smooth = cv2.edgePreservingFilter(frame, flags=cv2.RECURS_FILTER,
-                                      sigma_s=80, sigma_r=0.5)
-    smooth = cv2.medianBlur(smooth, 7)
+                                      sigma_s=120, sigma_r=0.55)
+    smooth = cv2.medianBlur(smooth, 9)
 
     # 2. Reduce to a small palette (few flat colours = coloured paper).
     quant = _quantize(smooth, 5)
@@ -156,12 +174,9 @@ def _paper_cutout(frame: np.ndarray) -> np.ndarray:
     hsv[..., 1] = np.clip(hsv[..., 1] * 1.20, 0, 255)   # gentle saturation
     quant = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
 
-    # 3. Thin, clean "cut" lines between pieces (subtle, not bold outlines).
-    gray = cv2.cvtColor(smooth, cv2.COLOR_BGR2GRAY)
-    edges = cv2.Canny(gray, 50, 120)
-    edges = cv2.medianBlur(edges, 3)   # drop speckle, keep it tidy
-    line_mask = cv2.cvtColor(255 - edges, cv2.COLOR_GRAY2BGR)
-
+    # 3. Thin cut lines around the big pieces only (speckle removed).
+    line_mask = _clean_line_mask(smooth, lo=60, hi=140,
+                                 min_frac=0.0010, thicken=0)
     return cv2.bitwise_and(quant, line_mask)
 
 
