@@ -62,7 +62,7 @@ STYLE_CONFIG = {
     "traditional":  ("Traditional hand-drawn cel look (soft, warm)",            1),
     "flipbook":     ("Pencil flipbook - sketchy lines, hand-flipped timing",    3),
     "stop_motion":  ("Stop-motion - real texture with choppy 'on threes' timing", 3),
-    "cutout":       ("Cut-out / paper collage - flat posterised shapes",        1),
+    "cutout":       ("Paper cut-out / puppet - big flat shapes, thin cut lines", 1),
     "sand":         ("Sand-on-glass - grainy warm monochrome",                  2),
     "paint_glass":  ("Paint-on-glass - soft smeared oil painting",              1),
     "clay":         ("Claymation-ish - smooth, glossy, saturated",              2),
@@ -141,11 +141,38 @@ def _clean_2d(frame: np.ndarray) -> np.ndarray:
     return cv2.bitwise_and(quant, line_mask)
 
 
+def _paper_cutout(frame: np.ndarray) -> np.ndarray:
+    """Paper cut-out / puppet look: big flat colour regions like pieces of
+    coloured paper, with thin clean cut lines. Flatter and softer-edged than
+    the 2d style."""
+    # 1. Strong smoothing -> remove texture, leave paper-flat regions.
+    smooth = cv2.edgePreservingFilter(frame, flags=cv2.RECURS_FILTER,
+                                      sigma_s=80, sigma_r=0.5)
+    smooth = cv2.medianBlur(smooth, 7)
+
+    # 2. Reduce to a small palette (few flat colours = coloured paper).
+    quant = _quantize(smooth, 5)
+    hsv = cv2.cvtColor(quant, cv2.COLOR_BGR2HSV).astype(np.int16)
+    hsv[..., 1] = np.clip(hsv[..., 1] * 1.20, 0, 255)   # gentle saturation
+    quant = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
+
+    # 3. Thin, clean "cut" lines between pieces (subtle, not bold outlines).
+    gray = cv2.cvtColor(smooth, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 50, 120)
+    edges = cv2.medianBlur(edges, 3)   # drop speckle, keep it tidy
+    line_mask = cv2.cvtColor(255 - edges, cv2.COLOR_GRAY2BGR)
+
+    return cv2.bitwise_and(quant, line_mask)
+
+
 def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
     """Apply a stylisation to a single BGR frame and return a BGR frame."""
 
     if style == "2d":
         return _clean_2d(frame)
+
+    if style == "cutout":
+        return _paper_cutout(frame)
 
     if style == "sketch":
         return cv2.cvtColor(_pencil_sketch(frame), cv2.COLOR_GRAY2BGR)
@@ -205,9 +232,6 @@ def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
         color = _quantize(color, 5)
         edges = cv2.cvtColor(_edge_mask(frame, 9, 3), cv2.COLOR_GRAY2BGR)
         return cv2.bitwise_and(color, edges)
-
-    if style == "cutout":
-        return _cel(frame, n_levels=4, block=7, c=2, smooth_passes=3)
 
     if style == "anime":
         return _cel(frame, n_levels=6, block=9, c=3)
