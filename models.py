@@ -96,6 +96,12 @@ class VideoJob(db.Model):
     music_prompt = db.Column(db.String(512), default='')   # optional AI music prompt
     remove_regions = db.Column(db.Text, default='')        # JSON: [[x,y,w,h],...] fractions
     remove_method = db.Column(db.String(20), default='blur')  # blur, pixelate, black, inpaint
+    flat_pitch = db.Column(db.Boolean, default=False)      # replace grass with solid colour
+    pitch_color = db.Column(db.String(20), default='#c0392b')  # hex fill colour
+    saturation = db.Column(db.Float, default=1.0)          # 0.5..2.0
+    brightness = db.Column(db.Float, default=1.0)          # 0.7..1.3
+    outline_extra = db.Column(db.Integer, default=0)       # 0..3 extra outline thickness
+    quality = db.Column(db.String(20), default='balanced')  # fast, balanced, high
     progress = db.Column(db.Integer, default=0)            # 0..100
     stats = db.Column(db.Text)                             # JSON string of result stats
     error_message = db.Column(db.Text)
@@ -117,6 +123,12 @@ class VideoJob(db.Model):
             'music_prompt': self.music_prompt,
             'remove_regions': self.remove_regions,
             'remove_method': self.remove_method,
+            'flat_pitch': self.flat_pitch,
+            'pitch_color': self.pitch_color,
+            'saturation': self.saturation,
+            'brightness': self.brightness,
+            'outline_extra': self.outline_extra,
+            'quality': self.quality,
             'progress': self.progress,
             'stats': self.stats,
             'error_message': self.error_message,

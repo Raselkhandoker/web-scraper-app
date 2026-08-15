@@ -316,6 +316,62 @@ def apply_removals(frame: np.ndarray,
 
 
 # --------------------------------------------------------------------------- #
+#  Flat pitch, look adjustments, quality presets
+# --------------------------------------------------------------------------- #
+
+# preset name -> (max output width, x264 quality 0..10)
+QUALITY_PRESETS = {
+    "fast":     (480, 6),
+    "balanced": (720, 8),
+    "high":     (1080, 9),
+}
+
+
+def hex_to_bgr(hex_color: str,
+               default: Tuple[int, int, int] = (60, 60, 200)) -> Tuple[int, int, int]:
+    """'#c0392b' -> (B, G, R). Falls back to a red-ish default."""
+    try:
+        h = hex_color.lstrip('#')
+        r, g, b = int(h[0:2], 16), int(h[2:4], 16), int(h[4:6], 16)
+        return (b, g, r)
+    except (ValueError, AttributeError, IndexError):
+        return default
+
+
+def replace_pitch(styled: np.ndarray, source: np.ndarray,
+                  color_bgr: Tuple[int, int, int]) -> np.ndarray:
+    """Replace the green grass with a flat solid colour, keeping the players,
+    lines and ball (which are not green). Grass detection is by colour, so it
+    is approximate."""
+    hsv = cv2.cvtColor(source, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, (30, 35, 35), (95, 255, 255))   # green range
+    k = np.ones((5, 5), np.uint8)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, k, iterations=1)
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, k, iterations=2)
+    styled[mask > 0] = color_bgr
+    return styled
+
+
+def apply_adjustments(styled: np.ndarray, source: np.ndarray,
+                      saturation: float = 1.0, brightness: float = 1.0,
+                      outline_extra: int = 0) -> np.ndarray:
+    """Post-process any style: saturation / brightness multipliers and an
+    optional extra bold outline pass. Defaults are no-ops."""
+    if saturation != 1.0 or brightness != 1.0:
+        hsv = cv2.cvtColor(styled, cv2.COLOR_BGR2HSV).astype(np.int16)
+        if saturation != 1.0:
+            hsv[..., 1] = np.clip(hsv[..., 1] * saturation, 0, 255)
+        if brightness != 1.0:
+            hsv[..., 2] = np.clip(hsv[..., 2] * brightness, 0, 255)
+        styled = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
+    if outline_extra and outline_extra > 0:
+        line_mask = _clean_line_mask(source, lo=60, hi=150,
+                                     min_frac=0.0006, thicken=int(outline_extra))
+        styled = cv2.bitwise_and(styled, line_mask)
+    return styled
+
+
+# --------------------------------------------------------------------------- #
 #  Trim helpers
 # --------------------------------------------------------------------------- #
 
@@ -387,6 +443,12 @@ class VideoAnimator:
         replacement_audio: Optional[str] = None,  # path, for audio_mode=replace
         remove_regions: Optional[List[Tuple[float, float, float, float]]] = None,
         remove_method: str = "blur",
+        flat_pitch: bool = False,
+        pitch_color: Tuple[int, int, int] = (60, 60, 200),
+        saturation: float = 1.0,
+        brightness: float = 1.0,
+        outline_extra: int = 0,
+        quality: Optional[str] = None,
         max_width: int = 960,
         progress_cb: ProgressCB = None,
     ) -> dict:
@@ -394,6 +456,11 @@ class VideoAnimator:
         cut_segments = cut_segments or []
         remove_regions = remove_regions or []
         hold = frame_hold_for(style)
+
+        # Quality preset controls output width + encoder quality.
+        enc_quality = 8
+        if quality in QUALITY_PRESETS:
+            max_width, enc_quality = QUALITY_PRESETS[quality]
 
         cap = cv2.VideoCapture(input_path)
         if not cap.isOpened():
@@ -415,7 +482,7 @@ class VideoAnimator:
 
         tmp_silent = tempfile.mktemp(suffix=".mp4")
         writer = imageio.get_writer(
-            tmp_silent, fps=fps, codec="libx264", quality=8,
+            tmp_silent, fps=fps, codec="libx264", quality=enc_quality,
             macro_block_size=None, ffmpeg_log_level="error",
         )
 
@@ -450,6 +517,10 @@ class VideoAnimator:
                     styled = last_styled
                 else:
                     styled = cartoonize(frame, style)
+                    if flat_pitch:
+                        styled = replace_pitch(styled, frame, pitch_color)
+                    styled = apply_adjustments(styled, frame, saturation,
+                                               brightness, outline_extra)
                     last_styled = styled
                 kept_index += 1
 

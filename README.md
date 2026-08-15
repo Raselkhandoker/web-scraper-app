@@ -48,7 +48,15 @@ top of the main dashboard).
    frame before styling. This *hides* the marked areas rather than perfectly
    reconstructing what was behind them (true erasure needs AI video
    inpainting). Region removal runs on the `local` engine.
-4. Pick a **style** and an **engine**, then create the animation and download
+4. Tune the **look & quality** (all optional):
+   - **Flat pitch colour** — replace the green grass with a solid colour (a
+     step toward the flat-illustration look; grass detection is by colour, so
+     it is approximate).
+   - **Colour pop / Brightness / Extra outline** sliders — adjust any style
+     without changing code.
+   - **Quality** preset — Fast (480px, quick preview), Balanced (720px),
+     High (1080px).
+5. Pick a **style** and an **engine**, then create the animation and download
    the result.
 
 **Styles** (local engine = stylised *approximations* of these techniques):

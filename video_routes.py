@@ -28,8 +28,16 @@ from flask import Blueprint, request, jsonify, send_file, current_app
 
 from models import db, VideoJob
 from video_animator import (
-    VideoAnimator, STYLES, REMOVE_METHODS, parse_cut_segments,
+    VideoAnimator, STYLES, REMOVE_METHODS, QUALITY_PRESETS, hex_to_bgr,
+    parse_cut_segments,
 )
+
+
+def _clampf(val, lo, hi, default):
+    try:
+        return max(lo, min(hi, float(val)))
+    except (TypeError, ValueError):
+        return default
 
 
 def _parse_regions(raw):
@@ -165,6 +173,12 @@ def _run_local_engine(job, input_path, output_path, audio_mode, audio_upload,
         input_path, output_path, style=job.style, cut_segments=cuts,
         audio_mode=eff_mode, replacement_audio=audio_upload,
         remove_regions=regions, remove_method=(job.remove_method or 'blur'),
+        flat_pitch=bool(job.flat_pitch),
+        pitch_color=hex_to_bgr(job.pitch_color or '#c0392b'),
+        saturation=job.saturation if job.saturation is not None else 1.0,
+        brightness=job.brightness if job.brightness is not None else 1.0,
+        outline_extra=int(job.outline_extra or 0),
+        quality=job.quality or 'balanced',
         progress_cb=set_progress,
     )
     if audio_mode == 'ai_music':
@@ -226,6 +240,11 @@ def get_styles():
             {'id': 'replace', 'name': 'Replace with my audio file'},
             {'id': 'ai_music', 'name': 'AI music matching the style (needs token)'},
         ],
+        'qualities': [
+            {'id': 'fast', 'name': 'Fast (small, quick preview)'},
+            {'id': 'balanced', 'name': 'Balanced (recommended)'},
+            {'id': 'high', 'name': 'High (larger, slower)'},
+        ],
     }), 200
 
 
@@ -260,6 +279,15 @@ def create_video_job():
         return jsonify({'error': f'Unknown remove method "{remove_method}"'}), 400
     remove_regions_raw = request.form.get('remove_regions', '').strip()
 
+    quality = request.form.get('quality', 'balanced')
+    if quality not in QUALITY_PRESETS:
+        return jsonify({'error': f'Unknown quality "{quality}"'}), 400
+    flat_pitch = request.form.get('flat_pitch', 'false').lower() == 'true'
+    pitch_color = request.form.get('pitch_color', '#c0392b')
+    saturation = _clampf(request.form.get('saturation'), 0.5, 2.0, 1.0)
+    brightness = _clampf(request.form.get('brightness'), 0.7, 1.3, 1.0)
+    outline_extra = int(_clampf(request.form.get('outline_extra'), 0, 3, 0))
+
     # Save the video upload.
     stored_name = f"{uuid.uuid4().hex}{ext}"
     f.save(os.path.join(_uploads_dir(), stored_name))
@@ -291,6 +319,12 @@ def create_video_job():
         music_prompt=request.form.get('music_prompt', '').strip(),
         remove_regions=remove_regions_raw,
         remove_method=remove_method,
+        flat_pitch=flat_pitch,
+        pitch_color=pitch_color,
+        saturation=saturation,
+        brightness=brightness,
+        outline_extra=outline_extra,
+        quality=quality,
         status='pending',
         progress=0,
     )
