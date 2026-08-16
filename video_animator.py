@@ -270,10 +270,21 @@ def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
         return cv2.cvtColor(_pencil_sketch(frame), cv2.COLOR_GRAY2BGR)
 
     if style == "flipbook":
-        # Sketchy lines, faint colour wash.
-        sk = cv2.cvtColor(_pencil_sketch(frame), cv2.COLOR_GRAY2BGR)
+        # Colour-first sketchy flipbook: a saturated colour wash with pencil
+        # lines multiplied on top (so the lines stay dark without washing the
+        # colour out).
         wash = cv2.bilateralFilter(frame, 9, 60, 60)
-        return cv2.addWeighted(sk, 0.7, _quantize(wash, 6), 0.3, 0)
+        wash = _quantize(wash, 7)
+        hsv = cv2.cvtColor(wash, cv2.COLOR_BGR2HSV).astype(np.int16)
+        hsv[..., 1] = np.clip(hsv[..., 1] * 1.45, 0, 255)   # stronger colour
+        hsv[..., 2] = np.clip(hsv[..., 2] * 1.05, 0, 255)
+        wash = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
+        # Pencil lines as a 0..1 multiplier (white=1 keeps colour, lines darken).
+        sketch = _pencil_sketch(frame).astype(np.float32) / 255.0
+        # Lift the sketch floor so lines darken but don't crush the colour.
+        sketch = 0.35 + 0.65 * sketch
+        out = wash.astype(np.float32) * sketch[..., None]
+        return _clamp(out)
 
     if style == "whiteboard":
         # Black marker lines on a white board -- clean lines only (no crowd
