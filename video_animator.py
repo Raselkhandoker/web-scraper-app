@@ -185,6 +185,69 @@ def _paper_cutout(frame: np.ndarray) -> np.ndarray:
     return cv2.bitwise_and(quant, line_mask)
 
 
+# Haar cascades for face-aware experimental style (bundled with OpenCV).
+_HAAR = cv2.data.haarcascades
+_FACE_CASCADE = cv2.CascadeClassifier(_HAAR + 'haarcascade_frontalface_default.xml')
+_PROFILE_CASCADE = cv2.CascadeClassifier(_HAAR + 'haarcascade_profileface.xml')
+_UPPERBODY_CASCADE = cv2.CascadeClassifier(_HAAR + 'haarcascade_upperbody.xml')
+
+
+def _detect_faces(gray: np.ndarray) -> list:
+    """Frontal + left/right profile faces. Returns [(x,y,w,h), ...]."""
+    boxes = []
+    for casc in (_FACE_CASCADE, _PROFILE_CASCADE):
+        if casc.empty():
+            continue
+        for (x, y, w, h) in casc.detectMultiScale(gray, 1.1, 5, minSize=(24, 24)):
+            boxes.append((int(x), int(y), int(w), int(h)))
+    # Right-facing profiles: flip and detect, then mirror the x coordinate.
+    if not _PROFILE_CASCADE.empty():
+        W = gray.shape[1]
+        flipped = cv2.flip(gray, 1)
+        for (x, y, w, h) in _PROFILE_CASCADE.detectMultiScale(
+                flipped, 1.1, 5, minSize=(24, 24)):
+            boxes.append((int(W - x - w), int(y), int(w), int(h)))
+    return boxes
+
+
+def _experimental(frame: np.ndarray) -> np.ndarray:
+    """Abstract painterly colour-map, but protect faces/upper bodies so people
+    stay recognisable instead of being fully distorted."""
+    base = cv2.stylization(frame, sigma_s=40, sigma_r=0.5)
+    gray_b = cv2.cvtColor(base, cv2.COLOR_BGR2GRAY)
+    mapped = cv2.applyColorMap(gray_b, cv2.COLORMAP_TWILIGHT_SHIFTED)
+    effect = cv2.addWeighted(base, 0.5, mapped, 0.5, 0)   # full effect
+    # Protected regions blend toward the raw frame so faces stay clearly
+    # recognisable (feathering keeps the transition smooth, not a hard cutout).
+    safe = frame
+
+    h, w = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    protect = np.zeros((h, w), np.float32)
+
+    faces = _detect_faces(gray)
+    if faces:
+        for (x, y, fw, fh) in faces:            # strong protection on faces
+            x0, y0 = max(0, int(x - 0.15 * fw)), max(0, int(y - 0.20 * fh))
+            x1, y1 = min(w, int(x + 1.15 * fw)), min(h, int(y + 1.40 * fh))
+            protect[y0:y1, x0:x1] = 1.0
+    else:
+        bodies = ([] if _UPPERBODY_CASCADE.empty()
+                  else _UPPERBODY_CASCADE.detectMultiScale(
+                      gray, 1.1, 4, minSize=(60, 60)))
+        if len(bodies):                          # fallback: upper-body area
+            for (x, y, bw, bh) in bodies:
+                x1, y1 = min(w, x + bw), min(h, int(y + bh * 0.6))
+                protect[max(0, y):y1, max(0, x):x1] = 0.6
+        else:                                    # last resort: mild global
+            protect[:] = 0.30
+
+    protect = cv2.GaussianBlur(protect, (0, 0), sigmaX=max(4.0, w * 0.02))
+    protect = np.clip(protect, 0.0, 1.0)[..., None]
+    out = effect.astype(np.float32) * (1 - protect) + safe.astype(np.float32) * protect
+    return _clamp(out)
+
+
 def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
     """Apply a stylisation to a single BGR frame and return a BGR frame."""
 
@@ -214,10 +277,7 @@ def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
         return cv2.stylization(frame, sigma_s=60, sigma_r=0.45)
 
     if style == "experimental":
-        base = cv2.stylization(frame, sigma_s=40, sigma_r=0.5)
-        gray = cv2.cvtColor(base, cv2.COLOR_BGR2GRAY)
-        mapped = cv2.applyColorMap(gray, cv2.COLORMAP_TWILIGHT_SHIFTED)
-        return cv2.addWeighted(base, 0.5, mapped, 0.5, 0)
+        return _experimental(frame)
 
     if style == "sand":
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
