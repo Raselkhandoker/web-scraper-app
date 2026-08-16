@@ -185,6 +185,13 @@ def _paper_cutout(frame: np.ndarray) -> np.ndarray:
     return cv2.bitwise_and(quant, line_mask)
 
 
+# Blend strength for protected (face / upper-body) regions in the
+# experimental style. 1.0 = protected areas are fully raw -> maximum face
+# recognisability (current default). Lower it (e.g. 0.6-0.8) to keep more of
+# the painterly style in the face; useful on well-lit, clearly-frontal
+# footage where a fully-raw face can look detached from the styled body.
+EXPERIMENTAL_PROTECT_BLEND = 1.0
+
 # Haar cascades for face-aware experimental style (bundled with OpenCV).
 _HAAR = cv2.data.haarcascades
 _FACE_CASCADE = cv2.CascadeClassifier(_HAAR + 'haarcascade_frontalface_default.xml')
@@ -219,7 +226,9 @@ def _experimental(frame: np.ndarray) -> np.ndarray:
     effect = cv2.addWeighted(base, 0.5, mapped, 0.5, 0)   # full effect
     # Protected regions blend toward the raw frame so faces stay clearly
     # recognisable (feathering keeps the transition smooth, not a hard cutout).
-    safe = frame
+    # EXPERIMENTAL_PROTECT_BLEND controls how raw vs styled the face stays.
+    b = EXPERIMENTAL_PROTECT_BLEND
+    safe = frame if b >= 1.0 else cv2.addWeighted(frame, b, base, 1.0 - b, 0)
 
     h, w = frame.shape[:2]
     gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
