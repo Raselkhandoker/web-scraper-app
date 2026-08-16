@@ -231,22 +231,33 @@ def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
         return _clamp(sepia)
 
     if style == "clay":
+        # Claymation: smooth matte surfaces + conservative posterise so the
+        # colour reads as moulded clay, without hard outlines (soft edges) and
+        # without breaking player/ball boundaries.
         smooth = frame
         for _ in range(3):
             smooth = cv2.bilateralFilter(smooth, 9, 90, 90)
-        hsv = cv2.cvtColor(smooth, cv2.COLOR_BGR2HSV).astype(np.int16)
-        hsv[..., 1] = np.clip(hsv[..., 1] * 1.35, 0, 255)   # boost saturation
-        hsv[..., 2] = np.clip(hsv[..., 2] * 1.05, 0, 255)   # slight brighten
-        glossy = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
-        return cv2.GaussianBlur(glossy, (3, 3), 0)
+        quant = _quantize(smooth, 10)                       # conservative
+        hsv = cv2.cvtColor(quant, cv2.COLOR_BGR2HSV).astype(np.int16)
+        hsv[..., 1] = np.clip(hsv[..., 1] * 1.30, 0, 255)   # saturation
+        hsv[..., 2] = np.clip(hsv[..., 2] * 1.08, 0, 255)   # soft sheen
+        clay = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
+        return cv2.GaussianBlur(clay, (3, 3), 0)            # soft matte
 
     if style == "stop_motion":
-        # Keep real texture, just a mild toy-like boost (choppiness comes
-        # from frame_hold, handled by the caller).
-        s = cv2.bilateralFilter(frame, 7, 50, 50)
-        hsv = cv2.cvtColor(s, cv2.COLOR_BGR2HSV).astype(np.int16)
-        hsv[..., 1] = np.clip(hsv[..., 1] * 1.2, 0, 255)
-        return cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
+        # Toy / puppet look: conservative posterise + a thin clean outline so
+        # objects read as solid models. The choppy "on threes" timing comes
+        # from frame_hold in the caller.
+        s = cv2.bilateralFilter(frame, 9, 60, 60)
+        s = cv2.bilateralFilter(s, 9, 60, 60)
+        quant = _quantize(s, 12)                            # conservative
+        hsv = cv2.cvtColor(quant, cv2.COLOR_BGR2HSV).astype(np.int16)
+        hsv[..., 1] = np.clip(hsv[..., 1] * 1.25, 0, 255)   # saturation
+        hsv[..., 2] = np.clip(hsv[..., 2] * 1.02, 0, 255)
+        toy = cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
+        line_mask = _clean_line_mask(s, lo=60, hi=150,
+                                     min_frac=0.0004, thicken=1)
+        return cv2.bitwise_and(toy, line_mask)
 
     if style == "rotoscope":
         # Traced-live look: keep detail, band the colours, clean bold edges.
