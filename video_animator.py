@@ -102,15 +102,20 @@ def _pencil_sketch(frame: np.ndarray) -> np.ndarray:
     return _clamp(sketch)
 
 
-def _cel(frame: np.ndarray, n_levels: int, block: int, c: int,
-         smooth_passes: int = 2) -> np.ndarray:
-    """Shared cel-shading pipeline: smooth + quantise colour + dark edges."""
+def _cel(frame: np.ndarray, n_levels: int, smooth_passes: int = 2,
+         canny: Tuple[int, int] = (60, 150), min_frac: float = 0.00015,
+         thicken: int = 1) -> np.ndarray:
+    """Shared cel-shading pipeline: smooth + quantise colour + clean dark
+    outlines. Uses the speckle-removing _clean_line_mask (Canny + connected
+    component filter) instead of adaptiveThreshold, so textured areas like
+    grass and crowds stay flat rather than filling with grain/scribble."""
     color = frame
     for _ in range(smooth_passes):
         color = cv2.bilateralFilter(color, d=9, sigmaColor=75, sigmaSpace=75)
-    color = _quantize(color, n_levels)
-    edges = cv2.cvtColor(_edge_mask(frame, block, c), cv2.COLOR_GRAY2BGR)
-    return cv2.bitwise_and(color, edges)
+    quant = _quantize(color, n_levels)
+    line_mask = _clean_line_mask(color, lo=canny[0], hi=canny[1],
+                                 min_frac=min_frac, thicken=thicken)
+    return cv2.bitwise_and(quant, line_mask)
 
 
 def _clean_line_mask(smooth: np.ndarray, lo: int, hi: int,
@@ -199,9 +204,11 @@ def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
         return cv2.addWeighted(sk, 0.7, _quantize(wash, 6), 0.3, 0)
 
     if style == "whiteboard":
-        # Black marker lines on a white board.
-        edges = _edge_mask(frame, block=11, c=4)  # 0 on lines, 255 elsewhere
-        return cv2.cvtColor(edges, cv2.COLOR_GRAY2BGR)
+        # Black marker lines on a white board -- clean lines only (no crowd
+        # / grass speckle), so it reads like a real whiteboard drawing.
+        smooth = cv2.bilateralFilter(frame, 9, 75, 75)
+        return _clean_line_mask(smooth, lo=60, hi=150,
+                                min_frac=0.0004, thicken=1)
 
     if style in ("paint_glass", "paint"):
         return cv2.stylization(frame, sigma_s=60, sigma_r=0.45)
@@ -242,20 +249,21 @@ def cartoonize(frame: np.ndarray, style: str = "cartoon") -> np.ndarray:
         return cv2.cvtColor(_clamp(hsv).astype(np.uint8), cv2.COLOR_HSV2BGR)
 
     if style == "rotoscope":
-        # Traced-live look: keep detail, band the colours, bold edges.
+        # Traced-live look: keep detail, band the colours, clean bold edges.
         color = cv2.bilateralFilter(frame, 9, 60, 60)
         color = _quantize(color, 5)
-        edges = cv2.cvtColor(_edge_mask(frame, 9, 3), cv2.COLOR_GRAY2BGR)
-        return cv2.bitwise_and(color, edges)
+        line_mask = _clean_line_mask(color, lo=60, hi=150,
+                                     min_frac=0.00015, thicken=1)
+        return cv2.bitwise_and(color, line_mask)
 
     if style == "anime":
-        return _cel(frame, n_levels=6, block=9, c=3)
+        return _cel(frame, n_levels=6)
 
     if style == "traditional":
-        return _cel(frame, n_levels=8, block=9, c=2, smooth_passes=3)
+        return _cel(frame, n_levels=8, smooth_passes=3)
 
     # default: cartoon
-    return _cel(frame, n_levels=9, block=9, c=2)
+    return _cel(frame, n_levels=9)
 
 
 def frame_hold_for(style: str) -> int:
